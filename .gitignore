@@ -1,0 +1,9 @@
+# Ignore all PyTorch model binaries
+*.pt
+*.bin
+*.pth
+
+# Ignore all models under the models/ directory
+# models/**/best_model/
+# models/**/checkpoints/
+# models/**/weights/
