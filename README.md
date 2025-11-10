@@ -1,0 +1,259 @@
+# MiniNewsAI: Kid-Safe News Content Reframing System
+
+## Project Overview
+
+MiniNewsAI is a deep learning system designed to classify and reframe news articles into kid-safe content for children aged 8-10. The system uses a two-stage pipeline: (1) multiclass classification to categorize content as SAFE, SENSITIVE, or UNSAFE, and (2) content reframing to rewrite articles into age-appropriate formats.
+
+## System Architecture
+
+### Pipeline Flow
+```
+Input News Articles
+    ↓
+[Multiclass Classifier Training] → RoBERTa-base (SAFE/SENSITIVE/UNSAFE)
+    ↓
+[Content Reframer Training] → Mistral-7B-Instruct with LoRA
+    ↓
+[Inference Pipeline] → Classify → Reframe based on label
+    ↓
+Kid-Safe Rewritten Article
+```
+
+## Dataset
+
+### Source Datasets
+- **Global News Dataset**: https://www.kaggle.com/datasets/everydaycodings/global-news-dataset
+- **News Article Categories**: https://www.kaggle.com/datasets/timilsinabimal/newsarticlecategories
+
+### Data Processing
+1. **Categories Extracted**: ARTS & CULTURE, ENVIRONMENT, SCIENCE, SPORTS
+2. **BART Summarization**: Articles summarized to ~500 words
+3. **Labeling**: 
+   - Manual labeling: 1,000 article pairs
+   - Automated labeling: Gemini 2.5 Pro API (with reasoning)
+4. **DeepSeek Rewriting**: Generated kid-safe rewrites for SAFE/SENSITIVE articles
+
+### Dataset Statistics
+- **Total Samples**: 7,068 news articles
+- **Train/Val/Test Split**: 70/15/15 (stratified by label and category)
+- **Label Distribution**:
+  - SENSITIVE: 3,043 (43.0%)
+  - SAFE: 2,754 (39.0%)
+  - UNSAFE: 1,271 (18.0%)
+
+## Models
+
+### 1. Multiclass Classifier
+- **Model**: RoBERTa-base (125M parameters)
+- **Task**: 3-way classification (SAFE, SENSITIVE, UNSAFE)
+- **Loss Function**: Multi-class Focal Loss (gamma=3, alpha=[1.0, 3.0, 5.0])
+- **Performance**:
+  - Overall Accuracy: 79.9%
+  - UNSAFE Recall: 84.4% (Target: ≥80%) ✓
+  - SENSITIVE Recall: 75.0%
+  - SAFE Recall: 83.3%
+
+### 2. Content Reframer
+- **Model**: Mistral-7B-Instruct-v0.2 with LoRA fine-tuning
+- **Task**: Rewrite articles into kid-safe formats
+- **Styles**:
+  - **SAFE**: Faithful, factual summary with kid vocabulary
+  - **SENSITIVE**: Educational reframing with moral/lesson framing
+  - **UNSAFE**: Filtered out (no output)
+
+## Installation
+
+### Prerequisites
+- Python 3.8+
+- CUDA 12.8+ (for GPU support)
+- NVIDIA GPU with 16GB+ VRAM (recommended)
+
+### Setup
+1. Clone the repository:
+```bash
+git clone <repository-url>
+cd MiniNewsAI-main
+```
+
+2. Create a virtual environment:
+```bash
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+```
+
+3. Install dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+4. Download pre-trained models (if available):
+   - Place classifier model in `models/multiclass_classifier/best_model/`
+   - Place rewriter model in `models/rewriter_seq2seq/`
+
+## Usage
+
+### Training Models
+
+#### 1. Data Preparation
+```bash
+# Run data preparation notebook
+jupyter notebook notebooks/01_data_preparation.ipynb
+```
+
+#### 2. Train Multiclass Classifier
+```bash
+# Run classifier training notebook
+jupyter notebook notebooks/02_multiclass_classifier_training.ipynb
+```
+
+#### 3. Train Content Reframer
+```bash
+# Run reframer training notebook
+jupyter notebook notebooks/03_kid_safe_rewriter_training.ipynb
+```
+
+### Running Inference
+
+#### Using Gradio Interface
+```bash
+python app.py
+```
+
+The interface will be available at `http://localhost:7860`
+
+#### Using Python Script
+```python
+from app import process_article
+
+# Process an article
+article_text = "Your news article here..."
+article_title = "Article Title"
+
+predicted_label, probs_text, probs_dict, rewritten = process_article(article_text, article_title)
+
+print(f"Classification: {predicted_label}")
+print(f"Rewritten Article:\n{rewritten}")
+```
+
+## Project Structure
+
+```
+MiniNewsAI-main/
+├── data/
+│   ├── raw/                    # Original datasets
+│   ├── processed/              # Processed datasets (train/val/test)
+│   └── keywords/               # Keyword filters
+├── models/
+│   ├── multiclass_classifier/  # Trained classifier model
+│   └── rewriter_seq2seq/       # Trained reframer model
+├── notebooks/
+│   ├── 01_data_preparation.ipynb
+│   ├── 02_multiclass_classifier_training.ipynb
+│   └── 03_kid_safe_rewriter_training.ipynb
+├── scripts/
+│   ├── bart_summarize.ipynb
+│   ├── gemini_label_data.py
+│   ├── deepseek_safe_summarize.ipynb
+│   └── deepseek_sensitive_reframe.ipynb
+├── results/
+│   ├── multiclass/             # Classifier results
+│   └── stage1/                 # Stage 1 results
+├── app.py                      # Gradio interface
+├── requirements.txt            # Python dependencies
+└── README.md                   # This file
+```
+
+## Results
+
+### Classification Performance
+- **Overall Accuracy**: 79.9%
+- **UNSAFE Recall**: 84.4% (Target: ≥80%) ✓
+- **SENSITIVE Recall**: 75.0%
+- **SAFE Recall**: 83.3%
+
+### Reframing Quality
+- **Average Jaccard Similarity**: 0.51
+- **Length Preservation**: ~104% of expected length
+- **Style Adherence**: Good for both SAFE and SENSITIVE styles
+
+### Visualizations
+- Confusion matrices: `results/multiclass/confusion_matrix.png`
+- Training curves: `results/multiclass/training_history.png`
+- Validation predictions: `results/multiclass/validation_predictions.csv`
+
+## Known Issues and Limitations
+
+1. **False Negatives**: 30 UNSAFE articles misclassified (15.6% miss rate)
+   - 4.2% misclassified as SAFE (critical)
+   - 11.5% misclassified as SENSITIVE
+2. **Class Imbalance**: UNSAFE is minority class (18% of data)
+3. **Reframing Quality**: Room for improvement in faithfulness and style consistency
+4. **Evaluation Metrics**: Need human evaluation for quality assessment
+
+## Future Improvements
+
+### Short-term
+- [ ] Improve UNSAFE recall to 90%+
+- [ ] Enhance reframing quality with better prompts
+- [ ] Add batch processing support
+- [ ] Implement confidence score thresholds
+
+### Medium-term
+- [ ] Human evaluation for reframing quality
+- [ ] Style metrics (faithfulness, simplicity, moral clarity)
+- [ ] Longer context handling
+- [ ] Multi-turn refinement support
+
+### Long-term
+- [ ] Customization for different age ranges
+- [ ] Production-ready API
+- [ ] Monitoring and logging
+- [ ] Deployment infrastructure
+
+## Ethical Considerations
+
+### Responsible AI
+1. **Content Safety**: Primary goal is to protect children from harmful content
+2. **Bias Mitigation**: Ensuring fair representation across categories
+3. **Transparency**: Clear labeling and explanation of classification decisions
+4. **Privacy**: No storage of user input articles (unless explicitly requested)
+
+### Challenges
+1. **False Positives**: SAFE content incorrectly flagged as UNSAFE
+2. **False Negatives**: UNSAFE content slipping through (critical issue)
+3. **Cultural Sensitivity**: Ensuring content is appropriate across cultures
+4. **Age Appropriateness**: Balancing safety with educational value
+
+## Citation
+
+If you use this project in your research, please cite:
+
+```bibtex
+@misc{mininewsai2024,
+  title={MiniNewsAI: Kid-Safe News Content Reframing System},
+  author={Your Name},
+  year={2024},
+  howpublished={\url{https://github.com/ReshmaKoshy/MiniNewsAI}
+}
+```
+
+## Contact
+
+- **Author**: Reshma Koshy
+- **Email**: reshmakoshy01@gmail.com
+- **GitHub**: https://github.com/ReshmaKoshy/MiniNewsAI
+
+## Acknowledgments
+
+### Datasets
+- Global News Dataset: https://www.kaggle.com/datasets/everydaycodings/global-news-dataset
+- News Article Categories: https://www.kaggle.com/datasets/timilsinabimal/newsarticlecategories
+
+### Models
+- RoBERTa: Facebook AI Research
+- BART: Facebook AI Research
+- Mistral-7B-Instruct: Mistral AI
+- Gemini 2.5 Pro: Google DeepMind
+- DeepSeek LLM: DeepSeek AI
+
+
