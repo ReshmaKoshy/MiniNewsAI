@@ -1,18 +1,23 @@
-# Standard PyTorch nightly index (CUDA 12.8)
---pre
---extra-index-url https://download.pytorch.org/whl/nightly/cu128
+--extra-index-url https://download.pytorch.org/whl/cu128
 
-torch
-torchvision
-torchaudio
+torch==2.7.*
+torchvision==0.22.*
+torchaudio==2.7.*
 
-# Other dependencies
-transformers==4.33.3
-datasets>=2.19,<3
-scikit-learn>=1.4,<1.6
-pandas>=2.2,<3
-numpy>=1.26,<3
-matplotlib>=3.8,<3.9
-seaborn>=0.13,<0.14
-tqdm>=4.66,<5
-accelerate>=0.30,<1.1
+transformers==4.44.2
+datasets==2.20.0
+peft==0.12.0
+bitsandbytes==0.48.0
+accelerate==0.34.2
+sentencepiece==0.2.0
+rouge-score==0.1.2
+nltk==3.9.1
+matplotlib==3.9.2
+seaborn==0.13.2
+pandas==2.2.3
+scikit-learn==1.5.2
+tensorboard==2.17.0
+evaluate==0.4.2
+
+jupyter
+ipykernel
