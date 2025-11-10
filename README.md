@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-MiniNewsAI is a deep learning system designed to classify and reframe news articles into kid-safe content for children aged 8-10. The system uses a two-stage pipeline: (1) multiclass classification to categorize content as SAFE, SENSITIVE, or UNSAFE, and (2) content reframing to rewrite articles into age-appropriate formats.
+MiniNewsAI is a deep learning system designed to classify and reframe news articles into kid-safe content for children aged 6-14. The system uses a two-stage pipeline: (1) multiclass classification to categorize content as SAFE, SENSITIVE, or UNSAFE, and (2) content reframing to rewrite articles into age-appropriate formats.
 
 ## System Architecture
 
