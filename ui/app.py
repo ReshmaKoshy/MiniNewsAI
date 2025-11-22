@@ -15,8 +15,8 @@ from transformers import (
 )
 from peft import PeftModel
 
-# Project paths
-PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+# Project paths (app.py is in ui/ folder, so go up one level for project root)
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CLASSIFIER_MODEL_PATH = os.path.join(PROJECT_ROOT, 'models', 'multiclass_classifier', 'best_model')
 REWRITER_MODEL_PATH = os.path.join(PROJECT_ROOT, 'models', 'kid_safe_rewriter', 'best_model')
 REWRITER_BASE_MODEL = 'mistralai/Mistral-7B-Instruct-v0.2'
