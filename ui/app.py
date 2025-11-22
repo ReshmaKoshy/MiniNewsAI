@@ -603,7 +603,9 @@ def create_interface():
                     placeholder="Enter article title (optional)...",
                     lines=1
                 )
-                process_btn = gr.Button("🚀 Process Article", variant="primary", size="lg")
+                with gr.Row():
+                    process_btn = gr.Button("🚀 Process Article", variant="primary", size="lg")
+                    cancel_btn = gr.Button("⏹️ Cancel", variant="stop", size="lg", visible=False)
                 
                 gr.Markdown("### Model Status")
                 model_status = gr.Textbox(
