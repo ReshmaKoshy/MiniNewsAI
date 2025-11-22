@@ -160,8 +160,15 @@ def smart_truncate_article(article_text, max_tokens=430, tokenizer=None):
         max_chars = int(max_tokens / 0.75)
         return article_text[:max_chars] + "..."
     
-    # Count tokens in full article
-    tokens = tokenizer.encode(article_text, add_special_tokens=False)
+    # Count tokens in full article (with timeout protection)
+    try:
+        tokens = tokenizer.encode(article_text, add_special_tokens=False, max_length=10000, truncation=True)
+    except Exception as e:
+        print(f"  Warning: Tokenization error, using simple truncation: {e}")
+        # Fallback to simple truncation
+        max_chars = int(max_tokens / 0.75)
+        return article_text[:max_chars] + "..."
+    
     if len(tokens) <= max_tokens:
         return article_text  # Already short enough, keep fully
     
@@ -332,10 +339,12 @@ def rewrite_article(article_text, title, label):
     if label == 'UNSAFE':
         return "⚠️ This article is classified as UNSAFE and cannot be rewritten. Please use a different article."
     
+    print(f"  Creating prompt (label: {label}, article length: {len(article_text)} chars)")
     # Create prompt
     instruction = create_instruction_prompt(label, article_text, title)
     prompt = f"[INST] {instruction} [/INST]\n\n"
     
+    print(f"  Tokenizing prompt")
     # Tokenize
     inputs = rewriter_tokenizer(
         prompt,
@@ -343,32 +352,41 @@ def rewrite_article(article_text, title, label):
         truncation=True,
         max_length=512
     ).to(device)
+    print(f"  Input tokens: {inputs['input_ids'].shape[1]}")
     
     # Generate (using same parameters as training/validation)
     # Note: During training, we used: max_new_tokens=256, temperature=0.7, top_p=0.9, do_sample=True
     # We use slightly higher max_new_tokens for SENSITIVE (longer rewrites needed)
     rewriter_model.eval()
-    with torch.no_grad():
-        # Use same max_new_tokens as training (256) or slightly higher for SENSITIVE
-        max_new_tokens = 350 if label == 'SENSITIVE' else 256
-        
-        outputs = rewriter_model.generate(
-            **inputs,
-            max_new_tokens=max_new_tokens,
-            temperature=0.7,  # Same as training
-            top_p=0.9,  # Same as training
-            do_sample=True,  # Same as training
-            pad_token_id=rewriter_tokenizer.pad_token_id,
-            eos_token_id=rewriter_tokenizer.eos_token_id
-        )
+    
+    max_new_tokens = 350 if label == 'SENSITIVE' else 256
+    print(f"  Starting generation (max_new_tokens: {max_new_tokens})...")
+    
+    try:
+        with torch.no_grad():
+            outputs = rewriter_model.generate(
+                **inputs,
+                max_new_tokens=max_new_tokens,
+                temperature=0.7,  # Same as training
+                top_p=0.9,  # Same as training
+                do_sample=True,  # Same as training
+                pad_token_id=rewriter_tokenizer.pad_token_id,
+                eos_token_id=rewriter_tokenizer.eos_token_id
+            )
+        print(f"  ✓ Generation complete (output shape: {outputs.shape})")
+    except Exception as e:
+        print(f"  ✗ Generation error: {str(e)}")
+        raise
     
     # Decode
+    print(f"  Decoding output...")
     generated = rewriter_tokenizer.decode(outputs[0], skip_special_tokens=True)
     
     # Extract only the generated part (after [/INST])
     if "[/INST]" in generated:
         generated = generated.split("[/INST]")[-1].strip()
     
+    print(f"  ✓ Final output length: {len(generated)} chars")
     return generated
 
 
@@ -379,6 +397,10 @@ def process_article(article_text, title=""):
     truncated article is used for both classification and rewriting.
     """
     try:
+        print("=" * 80)
+        print("PROCESSING ARTICLE")
+        print("=" * 80)
+        
         if not article_text or not article_text.strip():
             return (
                 "<div style='color: #666; padding: 10px;'>Please enter an article to process.</div>",
@@ -397,6 +419,7 @@ def process_article(article_text, title=""):
         if not title or not title.strip():
             title = "Untitled Article"
         
+        print(f"Step 1: Smart truncation (article length: {len(article_text)} chars)")
         # Smart truncation: truncate once for both models
         # Use the smaller context window: 430 tokens (rewriter: 512 - 80 instruction)
         # Classifier can handle 512, but we use 430 to ensure consistency
@@ -405,6 +428,7 @@ def process_article(article_text, title=""):
             max_tokens=430,
             tokenizer=classifier_tokenizer
         )
+        print(f"✓ Truncation complete (truncated: {truncated_article != article_text})")
         
         # Store original for display
         original_article = article_text
@@ -414,8 +438,10 @@ def process_article(article_text, title=""):
         else:
             truncation_note = ""
         
+        print(f"Step 2: Classification")
         # Classify using truncated article
         predicted_label, confidence, confidence_scores = classify_article(truncated_article)
+        print(f"✓ Classification: {predicted_label} (confidence: {confidence:.2%})")
         
         if predicted_label is None:
             return (
@@ -449,7 +475,9 @@ def process_article(article_text, title=""):
     # Rewrite if SAFE or SENSITIVE (using same truncated article)
     try:
         if predicted_label in ['SAFE', 'SENSITIVE']:
+            print(f"Step 3: Rewriting ({predicted_label})")
             rewritten_text = rewrite_article(truncated_article, title, predicted_label)
+            print(f"✓ Rewriting complete (output length: {len(rewritten_text)} chars)")
             rewrite_status = f"✓ Rewritten as {predicted_label}"
         else:
             rewritten_text = "⚠️ This article is classified as UNSAFE and cannot be rewritten for children."
