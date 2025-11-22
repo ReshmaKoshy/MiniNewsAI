@@ -41,8 +41,12 @@ LABEL_COLORS = {
 
 
 def load_models():
-    """Load both classifier and rewriter models."""
+    """Load both classifier and rewriter models. Models are cached in memory."""
     global classifier_model, classifier_tokenizer, rewriter_model, rewriter_tokenizer
+    
+    # Check if models are already loaded (cached in memory)
+    if classifier_model is not None and rewriter_model is not None:
+        return "✅ Models already loaded! (Using cached models in memory)"
     
     try:
         # Check if model paths exist
@@ -203,25 +207,24 @@ def rewrite_article(article_text, title, label):
         max_length=512
     ).to(device)
     
-    # Generate
+    # Generate (optimized for speed)
     rewriter_model.eval()
     with torch.no_grad():
-        # Adjust max_new_tokens based on label
-        max_new_tokens = 768 if label == 'SENSITIVE' else 512
+        # Reduced max_new_tokens for faster generation
+        max_new_tokens = 400 if label == 'SENSITIVE' else 300
         
         outputs = rewriter_model.generate(
             **inputs,
             max_new_tokens=max_new_tokens,
-            min_new_tokens=50,
+            min_new_tokens=30,  # Reduced from 50
             temperature=0.7,
             top_p=0.9,
-            top_k=50,
+            top_k=40,  # Reduced from 50
             do_sample=True,
-            repetition_penalty=1.2,
-            length_penalty=1.1,
+            repetition_penalty=1.15,  # Slightly reduced
             pad_token_id=rewriter_tokenizer.pad_token_id,
             eos_token_id=rewriter_tokenizer.eos_token_id,
-            no_repeat_ngram_size=3
+            no_repeat_ngram_size=2  # Reduced from 3 for speed
         )
     
     # Decode
@@ -279,10 +282,10 @@ def process_article(article_text, title=""):
         <h3 style="color: {LABEL_COLORS[predicted_label]}; margin-bottom: 10px;">
             Classification: {predicted_label} (Confidence: {confidence:.1%})
         </h3>
-        <div style="background: #f8f9fa; padding: 15px; border-radius: 5px;">
-            <p style="margin: 5px 0;"><strong>SAFE:</strong> {confidence_scores['SAFE']:.1%}</p>
-            <p style="margin: 5px 0;"><strong>SENSITIVE:</strong> {confidence_scores['SENSITIVE']:.1%}</p>
-            <p style="margin: 5px 0;"><strong>UNSAFE:</strong> {confidence_scores['UNSAFE']:.1%}</p>
+        <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; color: #000;">
+            <p style="margin: 5px 0; color: #000;"><strong>SAFE:</strong> {confidence_scores['SAFE']:.1%}</p>
+            <p style="margin: 5px 0; color: #000;"><strong>SENSITIVE:</strong> {confidence_scores['SENSITIVE']:.1%}</p>
+            <p style="margin: 5px 0; color: #000;"><strong>UNSAFE:</strong> {confidence_scores['UNSAFE']:.1%}</p>
         </div>
     </div>
     """
@@ -304,25 +307,25 @@ def process_article(article_text, title=""):
     
     # Format original article display
     original_display = f"""
-    <div style="background: #fff3cd; padding: 15px; border-radius: 5px; border-left: 4px solid #ffc107;">
-        <h4 style="margin-top: 0;">Original Article</h4>
-        <p style="white-space: pre-wrap; margin: 0;">{article_text}</p>
+    <div style="background: #fff3cd; padding: 15px; border-radius: 5px; border-left: 4px solid #ffc107; color: #000;">
+        <h4 style="margin-top: 0; color: #000;">Original Article</h4>
+        <p style="white-space: pre-wrap; margin: 0; color: #000;">{article_text}</p>
     </div>
     """
     
     # Format rewritten article display
     if predicted_label in ['SAFE', 'SENSITIVE']:
         rewrite_display = f"""
-        <div style="background: #d4edda; padding: 15px; border-radius: 5px; border-left: 4px solid #28a745;">
-            <h4 style="margin-top: 0;">Kid-Safe Rewrite ({predicted_label})</h4>
-            <p style="white-space: pre-wrap; margin: 0;">{rewritten_text}</p>
+        <div style="background: #d4edda; padding: 15px; border-radius: 5px; border-left: 4px solid #28a745; color: #000;">
+            <h4 style="margin-top: 0; color: #000;">Kid-Safe Rewrite ({predicted_label})</h4>
+            <p style="white-space: pre-wrap; margin: 0; color: #000;">{rewritten_text}</p>
         </div>
         """
     else:
         rewrite_display = f"""
-        <div style="background: #f8d7da; padding: 15px; border-radius: 5px; border-left: 4px solid #dc3545;">
-            <h4 style="margin-top: 0;">Cannot Rewrite</h4>
-            <p style="white-space: pre-wrap; margin: 0;">{rewritten_text}</p>
+        <div style="background: #f8d7da; padding: 15px; border-radius: 5px; border-left: 4px solid #dc3545; color: #000;">
+            <h4 style="margin-top: 0; color: #000;">Cannot Rewrite</h4>
+            <p style="white-space: pre-wrap; margin: 0; color: #000;">{rewritten_text}</p>
         </div>
         """
     
@@ -374,9 +377,9 @@ def create_interface():
                 gr.Markdown("### Model Status")
                 model_status = gr.Textbox(
                     label="",
-                    value="⚠️ Models not loaded. Click '⚙️ Load Models' to initialize.",
+                    value="⚠️ Models not loaded. Click '⚙️ Load Models' to initialize.\n\n💡 Note: Models stay in memory after loading. Restart the app to reload.",
                     interactive=False,
-                    lines=3
+                    lines=4
                 )
                 load_models_btn = gr.Button("⚙️ Load Models", variant="secondary", size="lg")
         
