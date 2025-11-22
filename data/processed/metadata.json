@@ -1,0 +1,23 @@
+{
+  "total_samples": 7068,
+  "train_samples": 4947,
+  "val_samples": 1060,
+  "test_samples": 1061,
+  "label_distribution": {
+    "SENSITIVE": 3043,
+    "SAFE": 2754,
+    "UNSAFE": 1271
+  },
+  "category_distribution": {
+    "ENVIRONMENT": 2233,
+    "ARTS & CULTURE": 1968,
+    "SPORTS": 1492,
+    "SCIENCE": 1375
+  },
+  "class_weights": {
+    "SAFE": 0.8552904564315352,
+    "SENSITIVE": 0.7745420385157351,
+    "UNSAFE": 1.8528089887640449
+  },
+  "random_seed": 42
+}
