@@ -130,42 +130,42 @@ def load_models():
         return error_msg
 
 
-def smart_truncate_article(article_text, tokenizer, max_tokens, min_tokens_to_keep=None):
+def smart_truncate_article(article_text, max_tokens=430, tokenizer=None):
     """
-    Smart truncation: Keep full article if short enough, otherwise use sentence-based scoring.
+    Smart truncation of article using sentence-based scoring.
+    Uses position bias (earlier sentences more important) and length-based scoring.
     
     Args:
-        article_text: Original article text
-        tokenizer: Tokenizer to count tokens
-        max_tokens: Maximum tokens allowed
-        min_tokens_to_keep: Minimum tokens to keep (default: 80% of max_tokens)
+        article_text: Full article text
+        max_tokens: Maximum tokens to keep (default 430 for rewriter: 512 - 80 instruction)
+        tokenizer: Tokenizer to use for counting tokens (uses classifier tokenizer if available)
     
     Returns:
         Truncated article text
     """
-    if min_tokens_to_keep is None:
-        min_tokens_to_keep = int(max_tokens * 0.8)  # Keep at least 80% of max
-    
-    # Count tokens in original article
-    article_tokens = tokenizer.encode(article_text, add_special_tokens=False)
-    article_token_count = len(article_tokens)
-    
-    # If article is already short enough, return as-is
-    if article_token_count <= max_tokens:
+    if not article_text or not article_text.strip():
         return article_text
     
-    # If article is too short after truncation, return as-is (better to truncate later)
-    if article_token_count < min_tokens_to_keep:
-        return article_text
+    # Use classifier tokenizer if available, otherwise estimate
+    if tokenizer is None:
+        # Fallback: estimate tokens as ~0.75 * characters (rough estimate)
+        estimated_tokens = len(article_text) * 0.75
+        if estimated_tokens <= max_tokens:
+            return article_text
+        # Simple character-based truncation as fallback
+        max_chars = int(max_tokens / 0.75)
+        return article_text[:max_chars] + "..."
     
-    # Smart truncation: sentence-based scoring
-    # Split into sentences (simple regex-based, lightweight)
-    sentences = re.split(r'(?<=[.!?])\s+', article_text.strip())
-    sentences = [s.strip() for s in sentences if s.strip()]
+    # Count tokens in full article
+    tokens = tokenizer.encode(article_text, add_special_tokens=False)
+    if len(tokens) <= max_tokens:
+        return article_text  # Already short enough, keep fully
     
-    if len(sentences) == 0:
-        # Fallback: truncate by tokens
-        truncated_tokens = article_tokens[:max_tokens]
+    # Split into sentences
+    sentences = re.split(r'(?<=[.!?])\s+', article_text)
+    if len(sentences) <= 1:
+        # No sentence boundaries, use simple token truncation
+        truncated_tokens = tokens[:max_tokens]
         return tokenizer.decode(truncated_tokens, skip_special_tokens=True)
     
     # Score each sentence
@@ -173,53 +173,84 @@ def smart_truncate_article(article_text, tokenizer, max_tokens, min_tokens_to_ke
     total_sentences = len(sentences)
     
     for idx, sentence in enumerate(sentences):
-        # Position-based score (earlier sentences more important)
-        # Linear decay: first sentence = 1.0, last = 0.3
-        pos_score = 1.0 - (idx / total_sentences) * 0.7
+        if not sentence.strip():
+            sentence_scores.append((0, sentence, idx))
+            continue
         
-        # Length-based score (longer sentences often more informative)
-        # Normalize by average sentence length
-        sentence_tokens = len(tokenizer.encode(sentence, add_special_tokens=False))
-        avg_length = article_token_count / total_sentences
-        length_score = min(sentence_tokens / avg_length, 2.0) / 2.0  # Cap at 2x average
+        # Tokenize sentence
+        sent_tokens = tokenizer.encode(sentence, add_special_tokens=False)
+        sent_length = len(sent_tokens)
         
-        # Keyword importance (simple: check for important words)
-        # News articles often have important info in first few sentences
-        keyword_bonus = 0.0
-        important_keywords = ['announced', 'reported', 'according', 'study', 'research', 
-                             'discovered', 'found', 'revealed', 'said', 'according to']
-        if any(kw in sentence.lower() for kw in important_keywords):
-            keyword_bonus = 0.1
+        if sent_length == 0:
+            sentence_scores.append((0, sentence, idx))
+            continue
         
-        # Combined score (weighted)
-        # 0.50*position + 0.30*length + 0.20*keyword (similar to user's formula)
-        score = 0.50 * pos_score + 0.30 * length_score + 0.20 * keyword_bonus
+        # Position bias: earlier sentences are more important (0.30 weight)
+        # First 30% of sentences get higher priority
+        position_score = 0.30 * (1.0 - (idx / total_sentences)) if idx < total_sentences * 0.3 else 0.10 * (1.0 - (idx / total_sentences))
         
-        sentence_scores.append((score, idx, sentence, sentence_tokens))
+        # Length score: prefer sentences of moderate length (0.20 weight)
+        # Ideal sentence length: 15-30 tokens
+        if 15 <= sent_length <= 30:
+            length_score = 0.20
+        elif sent_length < 15:
+            length_score = 0.10  # Too short
+        else:
+            length_score = 0.15  # Too long
+        
+        # Centrality score: sentences with important words (0.20 weight)
+        # Simple heuristic: sentences with more capitalized words (proper nouns) or numbers
+        important_words = len(re.findall(r'\b[A-Z][a-z]+\b', sentence)) + len(re.findall(r'\d+', sentence))
+        centrality_score = 0.20 * min(important_words / 5.0, 1.0)  # Normalize to max 5 important words
+        
+        # Eventness: sentences with action verbs or question words (0.15 weight)
+        action_indicators = len(re.findall(r'\b(announced|reported|discovered|created|launched|opened|started|began)\b', sentence, re.IGNORECASE))
+        eventness_score = 0.15 * min(action_indicators / 2.0, 1.0)
+        
+        # Late update bonus: last few sentences might have updates (0.05 weight)
+        late_update_bonus = 0.05 if idx >= total_sentences * 0.8 else 0.0
+        
+        # Total score
+        total_score = position_score + length_score + centrality_score + eventness_score + late_update_bonus
+        
+        sentence_scores.append((total_score, sentence, idx, sent_length))
     
-    # Sort by score (highest first)
+    # Sort by score (descending)
     sentence_scores.sort(key=lambda x: x[0], reverse=True)
     
-    # Select sentences until we hit token limit
+    # Select sentences until we reach max_tokens
+    selected_sentences = []
     selected_indices = set()
-    total_tokens = 0
+    current_tokens = 0
     
-    for score, idx, sentence, sent_tokens in sentence_scores:
-        if total_tokens + sent_tokens <= max_tokens:
+    # First, always include the first sentence (lead)
+    if sentences:
+        first_sent_tokens = tokenizer.encode(sentences[0], add_special_tokens=False)
+        if len(first_sent_tokens) <= max_tokens:
+            selected_sentences.append((0, sentences[0]))
+            selected_indices.add(0)
+            current_tokens += len(first_sent_tokens)
+    
+    # Then add high-scoring sentences
+    for score, sentence, idx, sent_length in sentence_scores:
+        if idx in selected_indices:
+            continue
+        
+        if current_tokens + sent_length <= max_tokens:
+            selected_sentences.append((idx, sentence))
             selected_indices.add(idx)
-            total_tokens += sent_tokens
+            current_tokens += sent_length
         else:
-            # Try to fit at least one more sentence if we're close
-            if total_tokens < min_tokens_to_keep and sent_tokens <= (max_tokens - total_tokens):
-                selected_indices.add(idx)
-                total_tokens += sent_tokens
+            # Can't fit full sentence, break
             break
     
-    # Reconstruct article in original order
-    truncated_sentences = [sentences[i] for i in sorted(selected_indices)]
-    truncated_article = ' '.join(truncated_sentences)
+    # Sort selected sentences by original position
+    selected_sentences.sort(key=lambda x: x[0])
     
-    # Final safety check: if still too long, truncate by tokens
+    # Reconstruct article
+    truncated_article = ' '.join([sent for _, sent in selected_sentences])
+    
+    # Final check: if still too long, do hard truncation
     final_tokens = tokenizer.encode(truncated_article, add_special_tokens=False)
     if len(final_tokens) > max_tokens:
         final_tokens = final_tokens[:max_tokens]
@@ -244,24 +275,19 @@ Output:"""
 
 
 def classify_article(article_text):
-    """Classify article into SAFE, SENSITIVE, or UNSAFE."""
+    """Classify article into SAFE, SENSITIVE, or UNSAFE.
+    
+    Note: article_text should already be truncated by process_article().
+    """
     if classifier_model is None or classifier_tokenizer is None:
         raise ValueError("Classifier model not loaded. Please click 'Load Models' first.")
     
     if not article_text or not article_text.strip():
         return None, None, None
     
-    # Smart truncate article to max 512 tokens (classifier context window)
-    # Leave some buffer for special tokens
-    truncated_article = smart_truncate_article(
-        article_text, 
-        classifier_tokenizer, 
-        max_tokens=510  # Leave 2 tokens for special tokens
-    )
-    
-    # Tokenize
+    # Tokenize (article is already truncated, but add safety truncation)
     inputs = classifier_tokenizer(
-        truncated_article,
+        article_text,
         return_tensors="pt",
         truncation=True,
         max_length=512,
@@ -302,23 +328,11 @@ def rewrite_article(article_text, title, label):
     if label == 'UNSAFE':
         return "⚠️ This article is classified as UNSAFE and cannot be rewritten. Please use a different article."
     
-    # Smart truncate article before creating prompt
-    # Instruction takes ~80 tokens, so article gets ~430 tokens
-    INSTRUCTION_TOKEN_BUDGET = 80
-    ARTICLE_MAX_TOKENS = 512 - INSTRUCTION_TOKEN_BUDGET  # ~432 tokens
-    
-    truncated_article = smart_truncate_article(
-        article_text,
-        rewriter_tokenizer,
-        max_tokens=ARTICLE_MAX_TOKENS,
-        min_tokens_to_keep=int(ARTICLE_MAX_TOKENS * 0.7)  # Keep at least 70% for short articles
-    )
-    
-    # Create prompt with truncated article
-    instruction = create_instruction_prompt(label, truncated_article, title)
+    # Create prompt
+    instruction = create_instruction_prompt(label, article_text, title)
     prompt = f"[INST] {instruction} [/INST]\n\n"
     
-    # Tokenize (final safety truncation)
+    # Tokenize
     inputs = rewriter_tokenizer(
         prompt,
         return_tensors="pt",
@@ -355,7 +369,11 @@ def rewrite_article(article_text, title, label):
 
 
 def process_article(article_text, title=""):
-    """Main processing function: classify and rewrite."""
+    """Main processing function: classify and rewrite.
+    
+    Smart truncation is applied once at the beginning, then the same
+    truncated article is used for both classification and rewriting.
+    """
     try:
         if not article_text or not article_text.strip():
             return (
@@ -375,8 +393,25 @@ def process_article(article_text, title=""):
         if not title or not title.strip():
             title = "Untitled Article"
         
-        # Classify
-        predicted_label, confidence, confidence_scores = classify_article(article_text)
+        # Smart truncation: truncate once for both models
+        # Use the smaller context window: 430 tokens (rewriter: 512 - 80 instruction)
+        # Classifier can handle 512, but we use 430 to ensure consistency
+        truncated_article = smart_truncate_article(
+            article_text, 
+            max_tokens=430,
+            tokenizer=classifier_tokenizer
+        )
+        
+        # Store original for display
+        original_article = article_text
+        if truncated_article != article_text:
+            # Article was truncated, show note
+            truncation_note = f"<small style='color: #666;'>(Article truncated from {len(article_text.split())} to ~{len(truncated_article.split())} words for processing)</small>"
+        else:
+            truncation_note = ""
+        
+        # Classify using truncated article
+        predicted_label, confidence, confidence_scores = classify_article(truncated_article)
         
         if predicted_label is None:
             return (
@@ -407,10 +442,10 @@ def process_article(article_text, title=""):
     </div>
     """
     
-    # Rewrite if SAFE or SENSITIVE
+    # Rewrite if SAFE or SENSITIVE (using same truncated article)
     try:
         if predicted_label in ['SAFE', 'SENSITIVE']:
-            rewritten_text = rewrite_article(article_text, title, predicted_label)
+            rewritten_text = rewrite_article(truncated_article, title, predicted_label)
             rewrite_status = f"✓ Rewritten as {predicted_label}"
         else:
             rewritten_text = "⚠️ This article is classified as UNSAFE and cannot be rewritten for children."
@@ -422,11 +457,11 @@ def process_article(article_text, title=""):
         rewritten_text = f"Error during rewriting: {str(e)}"
         rewrite_status = "✗ Error during rewriting"
     
-    # Format original article display
+    # Format original article display (show full original, note if truncated)
     original_display = f"""
     <div style="background: #fff3cd; padding: 15px; border-radius: 5px; border-left: 4px solid #ffc107; color: #000;">
-        <h4 style="margin-top: 0; color: #000;">Original Article</h4>
-        <p style="white-space: pre-wrap; margin: 0; color: #000;">{article_text}</p>
+        <h4 style="margin-top: 0; color: #000;">Original Article {truncation_note}</h4>
+        <p style="white-space: pre-wrap; margin: 0; color: #000;">{original_article}</p>
     </div>
     """
     
