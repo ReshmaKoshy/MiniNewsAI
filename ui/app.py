@@ -331,11 +331,13 @@ def classify_article(article_text):
     with torch.no_grad():
         outputs = classifier_model(**inputs)
         logits = outputs.logits
+        # Convert to float32 for operations (bfloat16 may not be supported in numpy)
+        logits = logits.float()
         probs = torch.nn.functional.softmax(logits, dim=-1)
         predicted_class = torch.argmax(logits, dim=-1).item()
     
-    # Get probabilities
-    probabilities = probs[0].cpu().numpy()
+    # Get probabilities (convert to float32 first)
+    probabilities = probs[0].cpu().float().numpy()
     
     # Get label name
     predicted_label = LABEL_NAMES[predicted_class]
