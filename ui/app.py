@@ -57,7 +57,47 @@ def load_models():
         # Load classifier
         print(f"Loading classifier from {CLASSIFIER_MODEL_PATH}...")
         classifier_tokenizer = RobertaTokenizer.from_pretrained(CLASSIFIER_MODEL_PATH)
-        classifier_model = RobertaForSequenceClassification.from_pretrained(CLASSIFIER_MODEL_PATH)
+        
+        # Check if model file exists and is valid
+        model_file = os.path.join(CLASSIFIER_MODEL_PATH, "model.safetensors")
+        if os.path.exists(model_file):
+            file_size = os.path.getsize(model_file)
+            # RoBERTa-base should be ~500MB, if much smaller it's likely corrupted
+            if file_size < 1000000:  # Less than 1MB
+                raise Exception(
+                    f"Model file appears corrupted (size: {file_size/1024:.1f}KB, expected ~500MB). "
+                    f"Please re-train the model using notebook 02_multiclass_classifier_training.ipynb"
+                )
+        
+        # Try loading with different methods to handle version mismatches
+        try:
+            # First try with safetensors (default)
+            classifier_model = RobertaForSequenceClassification.from_pretrained(
+                CLASSIFIER_MODEL_PATH,
+                use_safetensors=True
+            )
+        except Exception as e1:
+            error_msg1 = str(e1)
+            print(f"Warning: Failed to load with safetensors: {error_msg1[:200]}")
+            try:
+                # Try without safetensors (use pickle format if available)
+                classifier_model = RobertaForSequenceClassification.from_pretrained(
+                    CLASSIFIER_MODEL_PATH,
+                    use_safetensors=False
+                )
+            except Exception as e2:
+                error_msg2 = str(e2)
+                print(f"Warning: Failed to load without safetensors: {error_msg2[:200]}")
+                # Provide helpful error message
+                raise Exception(
+                    f"Failed to load classifier model. The model file may be corrupted or incompatible.\n\n"
+                    f"Error details:\n"
+                    f"- Safetensors: {error_msg1[:150]}\n"
+                    f"- Pickle: {error_msg2[:150]}\n\n"
+                    f"Solution: Please re-train the model using:\n"
+                    f"  jupyter notebook notebooks/02_multiclass_classifier_training.ipynb"
+                )
+        
         classifier_model = classifier_model.to(device)
         classifier_model.eval()
         print("✓ Classifier loaded")
