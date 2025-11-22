@@ -350,7 +350,7 @@ def classify_article(article_text):
     return predicted_label, confidence, confidence_scores
 
 
-def rewrite_article(article_text, title, label):
+def rewrite_article(article_text, title, label, progress=None):
     """Rewrite article to be kid-safe."""
     if rewriter_model is None or rewriter_tokenizer is None:
         raise ValueError("Rewriter model not loaded. Please click 'Load Models' first.")
@@ -361,11 +361,15 @@ def rewrite_article(article_text, title, label):
     if label == 'UNSAFE':
         return "⚠️ This article is classified as UNSAFE and cannot be rewritten. Please use a different article."
     
+    if progress:
+        progress(0.6, desc="Preparing generation...")
     print(f"  Creating prompt (label: {label}, article length: {len(article_text)} chars)")
     # Create prompt
     instruction = create_instruction_prompt(label, article_text, title)
     prompt = f"[INST] {instruction} [/INST]\n\n"
     
+    if progress:
+        progress(0.65, desc="Tokenizing input...")
     print(f"  Tokenizing prompt")
     # Tokenize
     inputs = rewriter_tokenizer(
@@ -377,8 +381,6 @@ def rewrite_article(article_text, title, label):
     print(f"  Input tokens: {inputs['input_ids'].shape[1]}")
     
     # Generate (using same parameters as training/validation)
-    # Note: During training, we used: max_new_tokens=256, temperature=0.7, top_p=0.9, do_sample=True
-    # We use slightly higher max_new_tokens for SENSITIVE (longer rewrites needed)
     rewriter_model.eval()
     
     max_new_tokens = 350 if label == 'SENSITIVE' else 256
@@ -387,9 +389,12 @@ def rewrite_article(article_text, title, label):
     
     try:
         with torch.no_grad():
-            # Add timeout protection and ensure inputs are on correct device
+            # Ensure inputs are on correct device
             if inputs['input_ids'].device != next(rewriter_model.parameters()).device:
                 inputs = {k: v.to(next(rewriter_model.parameters()).device) for k, v in inputs.items()}
+            
+            if progress:
+                progress(0.7, desc="Generating rewrite (this may take 30-60 seconds)...")
             
             outputs = rewriter_model.generate(
                 **inputs,
@@ -399,10 +404,11 @@ def rewrite_article(article_text, title, label):
                 do_sample=True,  # Same as training
                 pad_token_id=rewriter_tokenizer.pad_token_id,
                 eos_token_id=rewriter_tokenizer.eos_token_id,
-                # Add early stopping to prevent infinite generation
                 early_stopping=True
             )
         print(f"  ✓ Generation complete (output shape: {outputs.shape})")
+        if progress:
+            progress(0.9, desc="Decoding output...")
     except RuntimeError as e:
         error_msg = str(e)
         print(f"  ✗ Generation RuntimeError: {error_msg}")
@@ -427,11 +433,14 @@ def rewrite_article(article_text, title, label):
     return generated
 
 
-def process_article(article_text, title=""):
+def process_article(article_text, title="", progress=gr.Progress()):
     """Main processing function: classify and rewrite.
     
     Smart truncation is applied once at the beginning, then the same
     truncated article is used for both classification and rewriting.
+    
+    Args:
+        progress: Gradio Progress tracker for UI updates
     """
     try:
         print("=" * 80)
@@ -456,10 +465,9 @@ def process_article(article_text, title=""):
         if not title or not title.strip():
             title = "Untitled Article"
         
+        # Step 1: Smart truncation
+        progress(0.1, desc="Truncating article...")
         print(f"Step 1: Smart truncation (article length: {len(article_text)} chars)")
-        # Smart truncation: truncate once for both models
-        # Use the smaller context window: 430 tokens (rewriter: 512 - 80 instruction)
-        # Classifier can handle 512, but we use 430 to ensure consistency
         truncated_article = smart_truncate_article(
             article_text, 
             max_tokens=430,
@@ -470,13 +478,13 @@ def process_article(article_text, title=""):
         # Store original for display
         original_article = article_text
         if truncated_article != article_text:
-            # Article was truncated, show note
             truncation_note = f"<small style='color: #666;'>(Article truncated from {len(article_text.split())} to ~{len(truncated_article.split())} words for processing)</small>"
         else:
             truncation_note = ""
         
+        # Step 2: Classification
+        progress(0.3, desc="Classifying article...")
         print(f"Step 2: Classification")
-        # Classify using truncated article
         predicted_label, confidence, confidence_scores = classify_article(truncated_article)
         print(f"✓ Classification: {predicted_label} (confidence: {confidence:.2%})")
         
@@ -512,8 +520,10 @@ def process_article(article_text, title=""):
     # Rewrite if SAFE or SENSITIVE (using same truncated article)
     try:
         if predicted_label in ['SAFE', 'SENSITIVE']:
+            progress(0.5, desc=f"Rewriting article ({predicted_label})...")
             print(f"Step 3: Rewriting ({predicted_label})")
-            rewritten_text = rewrite_article(truncated_article, title, predicted_label)
+            rewritten_text = rewrite_article(truncated_article, title, predicted_label, progress)
+            progress(0.95, desc="Finalizing...")
             print(f"✓ Rewriting complete (output length: {len(rewritten_text)} chars)")
             rewrite_status = f"✓ Rewritten as {predicted_label}"
         else:
@@ -642,10 +652,38 @@ def create_interface():
             outputs=model_status
         )
         
-        process_btn.click(
+        # Process button with cancellation support
+        process_event = process_btn.click(
             fn=process_article,
             inputs=[article_input, title_input],
-            outputs=[classification_output, original_output, rewrite_output, rewrite_status, raw_rewrite]
+            outputs=[classification_output, original_output, rewrite_output, rewrite_status, raw_rewrite],
+            show_progress="full"
+        )
+        
+        # Cancel button functionality
+        def toggle_cancel_btn():
+            return gr.update(visible=True)
+        
+        def hide_cancel_btn():
+            return gr.update(visible=False)
+        
+        # Show cancel button when processing starts
+        process_btn.click(
+            fn=toggle_cancel_btn,
+            outputs=cancel_btn
+        )
+        
+        # Hide cancel button and cancel processing when cancel is clicked
+        cancel_btn.click(
+            fn=lambda: (gr.update(visible=False),),
+            outputs=[cancel_btn],
+            cancels=[process_event]
+        )
+        
+        # Hide cancel button when processing completes
+        process_event.then(
+            fn=hide_cancel_btn,
+            outputs=[cancel_btn]
         )
         
         gr.Markdown(
