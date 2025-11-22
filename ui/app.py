@@ -114,15 +114,37 @@ def load_models():
         # Load rewriter
         print(f"Loading rewriter base model: {REWRITER_BASE_MODEL}...")
         rewriter_tokenizer = AutoTokenizer.from_pretrained(REWRITER_BASE_MODEL)
-        base_model = AutoModelForCausalLM.from_pretrained(
-            REWRITER_BASE_MODEL,
-            torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
-            device_map="auto" if torch.cuda.is_available() else None
-        )
+        
+        # Use device_map="auto" only on GPU, manual device placement on CPU
+        if torch.cuda.is_available():
+            base_model = AutoModelForCausalLM.from_pretrained(
+                REWRITER_BASE_MODEL,
+                torch_dtype=torch.bfloat16,
+                device_map="auto"
+            )
+            print(f"✓ Base model loaded with device_map='auto'")
+        else:
+            base_model = AutoModelForCausalLM.from_pretrained(
+                REWRITER_BASE_MODEL,
+                torch_dtype=torch.float32
+            )
+            base_model = base_model.to(device)
+            print(f"✓ Base model loaded to {device}")
         
         print(f"Loading rewriter adapter from {REWRITER_MODEL_PATH}...")
         rewriter_model = PeftModel.from_pretrained(base_model, REWRITER_MODEL_PATH)
-        rewriter_model = rewriter_model.to(device) if not torch.cuda.is_available() else rewriter_model
+        
+        # Ensure model is on correct device (device_map="auto" might place it elsewhere)
+        if torch.cuda.is_available():
+            # Check where model is actually placed
+            model_device = next(rewriter_model.parameters()).device
+            print(f"  Model device after loading: {model_device}")
+            if model_device.type != 'cuda':
+                print(f"  Warning: Model not on CUDA, moving to {device}")
+                rewriter_model = rewriter_model.to(device)
+        else:
+            rewriter_model = rewriter_model.to(device)
+        
         rewriter_model.eval()
         print("✓ Rewriter loaded")
         
