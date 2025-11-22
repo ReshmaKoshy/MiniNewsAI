@@ -361,9 +361,14 @@ def rewrite_article(article_text, title, label):
     
     max_new_tokens = 350 if label == 'SENSITIVE' else 256
     print(f"  Starting generation (max_new_tokens: {max_new_tokens})...")
+    print(f"  Device: {device}, Model device: {next(rewriter_model.parameters()).device}")
     
     try:
         with torch.no_grad():
+            # Add timeout protection and ensure inputs are on correct device
+            if inputs['input_ids'].device != next(rewriter_model.parameters()).device:
+                inputs = {k: v.to(next(rewriter_model.parameters()).device) for k, v in inputs.items()}
+            
             outputs = rewriter_model.generate(
                 **inputs,
                 max_new_tokens=max_new_tokens,
@@ -371,11 +376,21 @@ def rewrite_article(article_text, title, label):
                 top_p=0.9,  # Same as training
                 do_sample=True,  # Same as training
                 pad_token_id=rewriter_tokenizer.pad_token_id,
-                eos_token_id=rewriter_tokenizer.eos_token_id
+                eos_token_id=rewriter_tokenizer.eos_token_id,
+                # Add early stopping to prevent infinite generation
+                early_stopping=True
             )
         print(f"  ✓ Generation complete (output shape: {outputs.shape})")
+    except RuntimeError as e:
+        error_msg = str(e)
+        print(f"  ✗ Generation RuntimeError: {error_msg}")
+        if "out of memory" in error_msg.lower():
+            raise Exception("GPU out of memory. Try reducing max_new_tokens or using a shorter article.")
+        raise
     except Exception as e:
         print(f"  ✗ Generation error: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise
     
     # Decode
