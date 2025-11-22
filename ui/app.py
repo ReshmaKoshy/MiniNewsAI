@@ -75,11 +75,14 @@ def load_models():
                 )
         
         # Try loading with different methods to handle version mismatches
+        # Use bfloat16 on GPU (B200 optimized), float32 on CPU
+        model_dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
         try:
             # First try with safetensors (default)
             classifier_model = RobertaForSequenceClassification.from_pretrained(
                 CLASSIFIER_MODEL_PATH,
-                use_safetensors=True
+                use_safetensors=True,
+                torch_dtype=model_dtype
             )
         except Exception as e1:
             error_msg1 = str(e1)
@@ -88,7 +91,8 @@ def load_models():
                 # Try without safetensors (use pickle format if available)
                 classifier_model = RobertaForSequenceClassification.from_pretrained(
                     CLASSIFIER_MODEL_PATH,
-                    use_safetensors=False
+                    use_safetensors=False,
+                    torch_dtype=model_dtype
                 )
             except Exception as e2:
                 error_msg2 = str(e2)
