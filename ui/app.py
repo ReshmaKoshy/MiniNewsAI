@@ -433,7 +433,7 @@ def rewrite_article(article_text, title, label, progress=None):
     return generated
 
 
-def process_article(article_text, title="", progress=gr.Progress()):
+def process_article(article_text, title="", progress=None):
     """Main processing function: classify and rewrite.
     
     Smart truncation is applied once at the beginning, then the same
@@ -466,7 +466,8 @@ def process_article(article_text, title="", progress=gr.Progress()):
             title = "Untitled Article"
         
         # Step 1: Smart truncation
-        progress(0.1, desc="Truncating article...")
+        if progress:
+            progress(0.1, desc="Truncating article...")
         print(f"Step 1: Smart truncation (article length: {len(article_text)} chars)")
         truncated_article = smart_truncate_article(
             article_text, 
@@ -483,7 +484,8 @@ def process_article(article_text, title="", progress=gr.Progress()):
             truncation_note = ""
         
         # Step 2: Classification
-        progress(0.3, desc="Classifying article...")
+        if progress:
+            progress(0.3, desc="Classifying article...")
         print(f"Step 2: Classification")
         predicted_label, confidence, confidence_scores = classify_article(truncated_article)
         print(f"✓ Classification: {predicted_label} (confidence: {confidence:.2%})")
@@ -520,10 +522,12 @@ def process_article(article_text, title="", progress=gr.Progress()):
     # Rewrite if SAFE or SENSITIVE (using same truncated article)
     try:
         if predicted_label in ['SAFE', 'SENSITIVE']:
-            progress(0.5, desc=f"Rewriting article ({predicted_label})...")
+            if progress:
+                progress(0.5, desc=f"Rewriting article ({predicted_label})...")
             print(f"Step 3: Rewriting ({predicted_label})")
             rewritten_text = rewrite_article(truncated_article, title, predicted_label, progress)
-            progress(0.95, desc="Finalizing...")
+            if progress:
+                progress(0.95, desc="Finalizing...")
             print(f"✓ Rewriting complete (output length: {len(rewritten_text)} chars)")
             rewrite_status = f"✓ Rewritten as {predicted_label}"
         else:
