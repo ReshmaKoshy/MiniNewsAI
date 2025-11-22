@@ -207,24 +207,22 @@ def rewrite_article(article_text, title, label):
         max_length=512
     ).to(device)
     
-    # Generate (optimized for speed)
+    # Generate (using same parameters as training/validation)
+    # Note: During training, we used: max_new_tokens=256, temperature=0.7, top_p=0.9, do_sample=True
+    # We use slightly higher max_new_tokens for SENSITIVE (longer rewrites needed)
     rewriter_model.eval()
     with torch.no_grad():
-        # Reduced max_new_tokens for faster generation
-        max_new_tokens = 400 if label == 'SENSITIVE' else 300
+        # Use same max_new_tokens as training (256) or slightly higher for SENSITIVE
+        max_new_tokens = 350 if label == 'SENSITIVE' else 256
         
         outputs = rewriter_model.generate(
             **inputs,
             max_new_tokens=max_new_tokens,
-            min_new_tokens=30,  # Reduced from 50
-            temperature=0.7,
-            top_p=0.9,
-            top_k=40,  # Reduced from 50
-            do_sample=True,
-            repetition_penalty=1.15,  # Slightly reduced
+            temperature=0.7,  # Same as training
+            top_p=0.9,  # Same as training
+            do_sample=True,  # Same as training
             pad_token_id=rewriter_tokenizer.pad_token_id,
-            eos_token_id=rewriter_tokenizer.eos_token_id,
-            no_repeat_ngram_size=2  # Reduced from 3 for speed
+            eos_token_id=rewriter_tokenizer.eos_token_id
         )
     
     # Decode
