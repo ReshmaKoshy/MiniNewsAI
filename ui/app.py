@@ -44,32 +44,45 @@ def load_models():
     """Load both classifier and rewriter models."""
     global classifier_model, classifier_tokenizer, rewriter_model, rewriter_tokenizer
     
-    print("Loading models...")
+    try:
+        # Check if model paths exist
+        if not os.path.exists(CLASSIFIER_MODEL_PATH):
+            return f"❌ Error: Classifier model not found at {CLASSIFIER_MODEL_PATH}\nPlease ensure the model is trained and saved."
+        
+        if not os.path.exists(REWRITER_MODEL_PATH):
+            return f"❌ Error: Rewriter model not found at {REWRITER_MODEL_PATH}\nPlease ensure the model is trained and saved."
+        
+        print("Loading models...")
+        
+        # Load classifier
+        print(f"Loading classifier from {CLASSIFIER_MODEL_PATH}...")
+        classifier_tokenizer = RobertaTokenizer.from_pretrained(CLASSIFIER_MODEL_PATH)
+        classifier_model = RobertaForSequenceClassification.from_pretrained(CLASSIFIER_MODEL_PATH)
+        classifier_model = classifier_model.to(device)
+        classifier_model.eval()
+        print("✓ Classifier loaded")
+        
+        # Load rewriter
+        print(f"Loading rewriter base model: {REWRITER_BASE_MODEL}...")
+        rewriter_tokenizer = AutoTokenizer.from_pretrained(REWRITER_BASE_MODEL)
+        base_model = AutoModelForCausalLM.from_pretrained(
+            REWRITER_BASE_MODEL,
+            torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
+            device_map="auto" if torch.cuda.is_available() else None
+        )
+        
+        print(f"Loading rewriter adapter from {REWRITER_MODEL_PATH}...")
+        rewriter_model = PeftModel.from_pretrained(base_model, REWRITER_MODEL_PATH)
+        rewriter_model = rewriter_model.to(device) if not torch.cuda.is_available() else rewriter_model
+        rewriter_model.eval()
+        print("✓ Rewriter loaded")
+        
+        return "✅ Models loaded successfully! You can now process articles."
     
-    # Load classifier
-    print(f"Loading classifier from {CLASSIFIER_MODEL_PATH}...")
-    classifier_tokenizer = RobertaTokenizer.from_pretrained(CLASSIFIER_MODEL_PATH)
-    classifier_model = RobertaForSequenceClassification.from_pretrained(CLASSIFIER_MODEL_PATH)
-    classifier_model = classifier_model.to(device)
-    classifier_model.eval()
-    print("✓ Classifier loaded")
-    
-    # Load rewriter
-    print(f"Loading rewriter base model: {REWRITER_BASE_MODEL}...")
-    rewriter_tokenizer = AutoTokenizer.from_pretrained(REWRITER_BASE_MODEL)
-    base_model = AutoModelForCausalLM.from_pretrained(
-        REWRITER_BASE_MODEL,
-        torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
-        device_map="auto" if torch.cuda.is_available() else None
-    )
-    
-    print(f"Loading rewriter adapter from {REWRITER_MODEL_PATH}...")
-    rewriter_model = PeftModel.from_pretrained(base_model, REWRITER_MODEL_PATH)
-    rewriter_model = rewriter_model.to(device) if not torch.cuda.is_available() else rewriter_model
-    rewriter_model.eval()
-    print("✓ Rewriter loaded")
-    
-    return "Models loaded successfully!"
+    except Exception as e:
+        error_msg = f"❌ Error loading models: {str(e)}\n\nPlease check:\n1. Model files exist in the correct paths\n2. All dependencies are installed\n3. You have sufficient memory (GPU/CPU)"
+        print(error_msg)
+        return error_msg
 
 
 def create_instruction_prompt(label, article, title):
@@ -186,12 +199,17 @@ def process_article(article_text, title=""):
     try:
         if not article_text or not article_text.strip():
             return (
-                "Please enter an article to process.",
+                "<div style='color: #666; padding: 10px;'>Please enter an article to process.</div>",
                 "",
                 "",
                 "",
                 ""
             )
+        
+        # Check if models are loaded
+        if classifier_model is None or classifier_tokenizer is None:
+            error_msg = "<div style='color: red; padding: 10px; background: #ffe6e6; border-left: 4px solid red;'><strong>⚠️ Models not loaded!</strong><br>Please click '⚙️ Load Models' first.</div>"
+            return (error_msg, "", "", "✗ Models not loaded", "")
         
         # Default title if not provided
         if not title or not title.strip():
@@ -202,18 +220,18 @@ def process_article(article_text, title=""):
         
         if predicted_label is None:
             return (
-                "Error: Could not classify article.",
+                "<div style='color: red; padding: 10px;'>Error: Could not classify article.</div>",
                 "",
                 "",
                 "",
                 ""
             )
     except ValueError as e:
-        error_msg = f"<div style='color: red; padding: 10px;'>{str(e)}</div>"
-        return (error_msg, "", "", "", "")
+        error_msg = f"<div style='color: red; padding: 10px; background: #ffe6e6; border-left: 4px solid red;'><strong>Error:</strong> {str(e)}</div>"
+        return (error_msg, "", "", "✗ Error", "")
     except Exception as e:
-        error_msg = f"<div style='color: red; padding: 10px;'>Error: {str(e)}</div>"
-        return (error_msg, "", "", "", "")
+        error_msg = f"<div style='color: red; padding: 10px; background: #ffe6e6; border-left: 4px solid red;'><strong>Error:</strong> {str(e)}</div>"
+        return (error_msg, "", "", "✗ Error", "")
     
     # Create confidence display
     confidence_html = f"""
@@ -281,7 +299,7 @@ def process_article(article_text, title=""):
 def create_interface():
     """Create the Gradio interface."""
     
-    with gr.Blocks(title="MiniNewsAI - Kid-Safe News Rewriter", theme=gr.themes.Soft()) as demo:
+    with gr.Blocks(title="MiniNewsAI - Kid-Safe News Rewriter") as demo:
         gr.Markdown(
             """
             # 🗞️ MiniNewsAI - Kid-Safe News Rewriter
@@ -316,10 +334,11 @@ def create_interface():
                 gr.Markdown("### Model Status")
                 model_status = gr.Textbox(
                     label="",
-                    value="Click 'Load Models' to initialize...",
-                    interactive=False
+                    value="⚠️ Models not loaded. Click '⚙️ Load Models' to initialize.",
+                    interactive=False,
+                    lines=3
                 )
-                load_models_btn = gr.Button("⚙️ Load Models", variant="secondary")
+                load_models_btn = gr.Button("⚙️ Load Models", variant="secondary", size="lg")
         
             with gr.Column(scale=1):
                 gr.Markdown("### 📊 Classification Results")
