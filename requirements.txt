@@ -12,6 +12,8 @@ accelerate==0.34.2
 sentencepiece==0.2.0
 rouge-score==0.1.2
 nltk==3.9.1
+bert-score==0.3.13
+textstat==0.7.3
 matplotlib==3.9.2
 seaborn==0.13.2
 pandas==2.2.3
