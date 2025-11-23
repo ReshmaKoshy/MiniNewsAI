@@ -509,17 +509,31 @@ def process_article(article_text, title="", progress=None):
     Args:
         progress: Gradio Progress tracker for UI updates
     """
+    print(f"[DEBUG] process_article called - article_text length: {len(article_text) if article_text else 0}, title: {title}")
+    print(f"[DEBUG] Attempting to acquire inference lock...")
+    
     # Use lock to prevent concurrent inference (thread-safe)
-    with inference_lock:
-        return _process_article_internal(article_text, title, progress)
+    try:
+        with inference_lock:
+            print(f"[DEBUG] Lock acquired, calling _process_article_internal...")
+            result = _process_article_internal(article_text, title, progress)
+            print(f"[DEBUG] _process_article_internal completed, releasing lock...")
+            return result
+    except Exception as e:
+        print(f"[DEBUG] Exception in process_article: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise
 
 
 def _process_article_internal(article_text, title="", progress=None):
     """Internal processing function (called with lock held)."""
+    print(f"[DEBUG] _process_article_internal entered")
     try:
         print("=" * 80)
         print("PROCESSING ARTICLE")
         print("=" * 80)
+        print(f"[DEBUG] Article text received: {len(article_text) if article_text else 0} chars")
         
         if not article_text or not article_text.strip():
             return (
@@ -558,10 +572,16 @@ def _process_article_internal(article_text, title="", progress=None):
             truncation_note = ""
         
         # Step 2: Classification
+        print(f"[DEBUG] Starting Step 2: Classification")
         if progress:
-            progress(0.3, desc="Classifying article...")
+            try:
+                progress(0.3, desc="Classifying article...")
+            except Exception as e:
+                print(f"[DEBUG] Progress call failed in Step 2: {e}")
         print(f"Step 2: Classification")
+        print(f"[DEBUG] Calling classify_article with truncated article length: {len(truncated_article)}")
         predicted_label, confidence, confidence_scores = classify_article(truncated_article)
+        print(f"[DEBUG] classify_article returned: {predicted_label}, confidence: {confidence}")
         print(f"✓ Classification: {predicted_label} (confidence: {confidence:.2%})")
         
         if predicted_label is None:
