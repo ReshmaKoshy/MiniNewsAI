@@ -537,8 +537,42 @@ def create_interface():
             outputs=model_status
         )
         
+        # Process button - add wrapper to ensure logs appear
+        def process_wrapper(article_text, title):
+            """Wrapper to ensure logs appear immediately."""
+            # Write directly to stderr (Gradio doesn't capture stderr)
+            import sys
+            sys.stderr.write("\n" + "=" * 80 + "\n")
+            sys.stderr.write("BUTTON CLICKED - process_wrapper ENTERED\n")
+            sys.stderr.write(f"Article length: {len(article_text) if article_text else 0}\n")
+            sys.stderr.write(f"Title: {title}\n")
+            sys.stderr.flush()
+            
+            # Also try stdout
+            sys.stdout.write("\n" + "=" * 80 + "\n")
+            sys.stdout.write("BUTTON CLICKED - process_wrapper ENTERED\n")
+            sys.stdout.write(f"Article length: {len(article_text) if article_text else 0}\n")
+            sys.stdout.flush()
+            
+            # Also use print
+            print("\n" + "=" * 80, flush=True)
+            print("BUTTON CLICKED - process_wrapper ENTERED", flush=True)
+            print(f"Article length: {len(article_text) if article_text else 0}", flush=True)
+            
+            try:
+                result = process_article(article_text, title)
+                sys.stderr.write("process_wrapper COMPLETED\n")
+                sys.stderr.flush()
+                return result
+            except Exception as e:
+                sys.stderr.write(f"ERROR in process_wrapper: {e}\n")
+                sys.stderr.flush()
+                import traceback
+                traceback.print_exc()
+                raise
+        
         process_btn.click(
-            fn=process_article,
+            fn=process_wrapper,
             inputs=[article_input, title_input],
             outputs=[classification_output, original_output, rewrite_output, rewrite_status, raw_rewrite]
         )
