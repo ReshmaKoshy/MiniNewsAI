@@ -781,8 +781,7 @@ def create_interface():
         process_btn.click(
             fn=process_article,
             inputs=[article_input, title_input],
-            outputs=[classification_output, original_output, rewrite_output, rewrite_status, raw_rewrite],
-            show_progress="full"
+            outputs=[classification_output, original_output, rewrite_output, rewrite_status, raw_rewrite]
         )
         
         gr.Markdown(
@@ -804,13 +803,8 @@ if __name__ == "__main__":
     # Create and launch interface
     demo = create_interface()
     
-    # Configure queue for reliable handling of multiple requests
-    # This ensures proper queue management and prevents UI hanging on subsequent calls
-    demo.queue(
-        default_concurrency_limit=1,  # Process one article at a time (models are large)
-        max_size=10,  # Allow up to 10 queued requests
-        api_open=False
-    )
+    # Simple queue configuration for sequential inference
+    demo.queue(default_concurrency_limit=1)
     
     demo.launch(
         server_name="0.0.0.0",
