@@ -409,20 +409,20 @@ def rewrite_article(article_text, title, label, progress=None):
     
     try:
         if progress is not None:
-        try:
-            progress(0.6, desc="Preparing generation...")
-        except Exception as e:
-            print(f"[DEBUG] Progress call failed (non-fatal): {e}")
-    print(f"  Creating prompt (label: {label}, article length: {len(article_text)} chars)")
-    # Create prompt
-    instruction = create_instruction_prompt(label, article_text, title)
-    prompt = f"[INST] {instruction} [/INST]\n\n"
-    
-    if progress is not None:
-        try:
-            progress(0.65, desc="Tokenizing input...")
-        except Exception as e:
-            print(f"[DEBUG] Progress call failed (non-fatal): {e}")
+            try:
+                progress(0.6, desc="Preparing generation...")
+            except Exception as e:
+                print(f"[DEBUG] Progress call failed (non-fatal): {e}")
+        print(f"  Creating prompt (label: {label}, article length: {len(article_text)} chars)")
+        # Create prompt
+        instruction = create_instruction_prompt(label, article_text, title)
+        prompt = f"[INST] {instruction} [/INST]\n\n"
+        
+        if progress is not None:
+            try:
+                progress(0.65, desc="Tokenizing input...")
+            except Exception as e:
+                print(f"[DEBUG] Progress call failed (non-fatal): {e}")
         print(f"  Tokenizing prompt")
         # Tokenize
         inputs = rewriter_tokenizer(
