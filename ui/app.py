@@ -96,6 +96,12 @@ def load_models():
         log(f"Loading rewriter adapter from {REWRITER_MODEL_PATH}...")
         rewriter_model = PeftModel.from_pretrained(base_model, REWRITER_MODEL_PATH)
         
+        # Delete base_model after adapter is loaded (frees memory)
+        del base_model
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        gc.collect()
+        
         if torch.cuda.is_available():
             model_device = next(rewriter_model.parameters()).device
             if model_device.type != 'cuda':
@@ -224,7 +230,11 @@ def classify_article(article_text):
         return predicted_label, confidence, confidence_scores
     
     finally:
+        # Aggressive cleanup
         if inputs is not None:
+            for k, v in inputs.items():
+                if torch.is_tensor(v):
+                    del v
             del inputs
         if outputs is not None:
             del outputs
@@ -234,7 +244,9 @@ def classify_article(article_text):
             del probs
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+            torch.cuda.synchronize()  # Wait for all CUDA operations to complete
         gc.collect()
+        gc.collect()  # Call twice to handle cyclic references
 
 
 def rewrite_article(article_text, title, label):
@@ -274,8 +286,10 @@ def rewrite_article(article_text, title, label):
             max_length=512
         ).to(device)
         
+        # Get model device once and cache it (avoid repeated parameter access)
         model_device = next(rewriter_model.parameters()).device
         if inputs['input_ids'].device != model_device:
+            # Move inputs to model device
             inputs = {k: v.to(model_device) for k, v in inputs.items()}
         
         max_new_tokens = 350 if label == 'SENSITIVE' else 256
@@ -296,7 +310,15 @@ def rewrite_article(article_text, title, label):
             )
         
         log("  [Rewriting] Decoding output...")
-        generated = rewriter_tokenizer.decode(outputs[0].cpu(), skip_special_tokens=True)
+        # Move to CPU immediately and decode
+        outputs_cpu = outputs[0].cpu()
+        generated = rewriter_tokenizer.decode(outputs_cpu, skip_special_tokens=True)
+        
+        # Delete GPU tensor immediately
+        del outputs
+        del outputs_cpu
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         
         if "[/INST]" in generated:
             generated = generated.split("[/INST]")[-1].strip()
@@ -310,13 +332,17 @@ def rewrite_article(article_text, title, label):
         traceback.print_exc()
         raise
     finally:
+        # Aggressive cleanup
         if inputs is not None:
+            for k, v in inputs.items():
+                if torch.is_tensor(v):
+                    del v
             del inputs
-        if outputs is not None:
-            del outputs
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+            torch.cuda.synchronize()  # Wait for all CUDA operations to complete
         gc.collect()
+        gc.collect()  # Call twice to handle cyclic references
 
 
 def process_article(article_text, title=""):
@@ -446,10 +472,12 @@ def process_article(article_text, title=""):
             </div>
             """
         
-        # Final cleanup
+        # Final cleanup - aggressive memory management
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+            torch.cuda.synchronize()  # Ensure all CUDA ops complete
         gc.collect()
+        gc.collect()  # Second pass for cyclic references
         
         log("=" * 80)
         log("PROCESS_ARTICLE COMPLETED")
