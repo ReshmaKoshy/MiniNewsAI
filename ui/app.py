@@ -34,8 +34,8 @@ classifier_tokenizer = None
 rewriter_model = None
 rewriter_tokenizer = None
 
-# Lock for thread-safe inference (prevent concurrent processing)
-inference_lock = threading.Lock()
+# Note: Removed threading.Lock() - Gradio's queue system handles concurrency
+# Using an external lock can interfere with Gradio's internal queue management
 
 # Label mapping
 LABEL_NAMES = ['SAFE', 'SENSITIVE', 'UNSAFE']
@@ -61,12 +61,12 @@ def load_models():
         
         if not os.path.exists(REWRITER_MODEL_PATH):
             return f"❌ Error: Rewriter model not found at {REWRITER_MODEL_PATH}\nPlease ensure the model is trained and saved."
-        
-        print("Loading models...")
-        
-        # Load classifier
-        print(f"Loading classifier from {CLASSIFIER_MODEL_PATH}...")
-        classifier_tokenizer = RobertaTokenizer.from_pretrained(CLASSIFIER_MODEL_PATH)
+    
+    print("Loading models...")
+    
+    # Load classifier
+    print(f"Loading classifier from {CLASSIFIER_MODEL_PATH}...")
+    classifier_tokenizer = RobertaTokenizer.from_pretrained(CLASSIFIER_MODEL_PATH)
         
         # Check if model file exists and is valid
         model_file = os.path.join(CLASSIFIER_MODEL_PATH, "model.safetensors")
@@ -112,13 +112,13 @@ def load_models():
                     f"  jupyter notebook notebooks/02_multiclass_classifier_training.ipynb"
                 )
         
-        classifier_model = classifier_model.to(device)
-        classifier_model.eval()
-        print("✓ Classifier loaded")
-        
-        # Load rewriter
-        print(f"Loading rewriter base model: {REWRITER_BASE_MODEL}...")
-        rewriter_tokenizer = AutoTokenizer.from_pretrained(REWRITER_BASE_MODEL)
+    classifier_model = classifier_model.to(device)
+    classifier_model.eval()
+    print("✓ Classifier loaded")
+    
+    # Load rewriter
+    print(f"Loading rewriter base model: {REWRITER_BASE_MODEL}...")
+    rewriter_tokenizer = AutoTokenizer.from_pretrained(REWRITER_BASE_MODEL)
         
         # Use device_map="auto" only on GPU, manual device placement on CPU
         if torch.cuda.is_available():
@@ -129,15 +129,15 @@ def load_models():
             )
             print(f"✓ Base model loaded with device_map='auto'")
         else:
-            base_model = AutoModelForCausalLM.from_pretrained(
-                REWRITER_BASE_MODEL,
+    base_model = AutoModelForCausalLM.from_pretrained(
+        REWRITER_BASE_MODEL,
                 torch_dtype=torch.float32
-            )
+    )
             base_model = base_model.to(device)
             print(f"✓ Base model loaded to {device}")
-        
-        print(f"Loading rewriter adapter from {REWRITER_MODEL_PATH}...")
-        rewriter_model = PeftModel.from_pretrained(base_model, REWRITER_MODEL_PATH)
+    
+    print(f"Loading rewriter adapter from {REWRITER_MODEL_PATH}...")
+    rewriter_model = PeftModel.from_pretrained(base_model, REWRITER_MODEL_PATH)
         
         # Ensure model is on correct device (device_map="auto" might place it elsewhere)
         if torch.cuda.is_available():
@@ -150,9 +150,9 @@ def load_models():
         else:
             rewriter_model = rewriter_model.to(device)
         
-        rewriter_model.eval()
-        print("✓ Rewriter loaded")
-        
+    rewriter_model.eval()
+    print("✓ Rewriter loaded")
+    
         return "✅ Models loaded successfully! You can now process articles."
     
     except Exception as e:
@@ -337,38 +337,38 @@ def classify_article(article_text):
     
     try:
         # Tokenize (article is already truncated, but add safety truncation)
-        inputs = classifier_tokenizer(
-            article_text,
-            return_tensors="pt",
-            truncation=True,
-            max_length=512,
-            padding=True
-        ).to(device)
-        
-        # Predict
-        with torch.no_grad():
-            outputs = classifier_model(**inputs)
-            logits = outputs.logits
+    inputs = classifier_tokenizer(
+        article_text,
+        return_tensors="pt",
+        truncation=True,
+        max_length=512,
+        padding=True
+    ).to(device)
+    
+    # Predict
+    with torch.no_grad():
+        outputs = classifier_model(**inputs)
+        logits = outputs.logits
             # Convert to float32 for operations (bfloat16 may not be supported in numpy)
             logits = logits.float()
-            probs = torch.nn.functional.softmax(logits, dim=-1)
-            predicted_class = torch.argmax(logits, dim=-1).item()
-        
+        probs = torch.nn.functional.softmax(logits, dim=-1)
+        predicted_class = torch.argmax(logits, dim=-1).item()
+    
         # Get probabilities (convert to float32 first, move to CPU immediately)
         probabilities = probs[0].cpu().float().numpy()
-        
-        # Get label name
-        predicted_label = LABEL_NAMES[predicted_class]
-        confidence = float(probabilities[predicted_class])
-        
-        # Create confidence scores dict
-        confidence_scores = {
-            LABEL_NAMES[i]: float(probabilities[i]) 
-            for i in range(len(LABEL_NAMES))
-        }
-        
-        return predicted_label, confidence, confidence_scores
     
+    # Get label name
+    predicted_label = LABEL_NAMES[predicted_class]
+    confidence = float(probabilities[predicted_class])
+    
+    # Create confidence scores dict
+    confidence_scores = {
+        LABEL_NAMES[i]: float(probabilities[i]) 
+        for i in range(len(LABEL_NAMES))
+    }
+    
+    return predicted_label, confidence, confidence_scores
+
     finally:
         # Explicit cleanup of tensors
         if inputs is not None:
@@ -411,20 +411,20 @@ def rewrite_article(article_text, title, label, progress=None):
         if progress:
             progress(0.6, desc="Preparing generation...")
         print(f"  Creating prompt (label: {label}, article length: {len(article_text)} chars)")
-        # Create prompt
-        instruction = create_instruction_prompt(label, article_text, title)
-        prompt = f"[INST] {instruction} [/INST]\n\n"
-        
+    # Create prompt
+    instruction = create_instruction_prompt(label, article_text, title)
+    prompt = f"[INST] {instruction} [/INST]\n\n"
+    
         if progress:
             progress(0.65, desc="Tokenizing input...")
         print(f"  Tokenizing prompt")
-        # Tokenize
-        inputs = rewriter_tokenizer(
-            prompt,
-            return_tensors="pt",
-            truncation=True,
-            max_length=512
-        ).to(device)
+    # Tokenize
+    inputs = rewriter_tokenizer(
+        prompt,
+        return_tensors="pt",
+        truncation=True,
+        max_length=512
+    ).to(device)
         print(f"  Input tokens: {inputs['input_ids'].shape[1]}")
         
         # Get model device once (avoid repeated calls)
@@ -443,34 +443,37 @@ def rewrite_article(article_text, title, label, progress=None):
         
         # Generate (using same parameters as training/validation)
         with torch.no_grad():
-            outputs = rewriter_model.generate(
-                **inputs,
-                max_new_tokens=max_new_tokens,
+        outputs = rewriter_model.generate(
+            **inputs,
+            max_new_tokens=max_new_tokens,
                 temperature=0.7,  # Same as training
                 top_p=0.9,  # Same as training
                 do_sample=True,  # Same as training
                 repetition_penalty=1.2,  # Prevent excessive repetition (critical for sequential inference)
                 no_repeat_ngram_size=3,  # Prevent repeating 3-grams (prevents hanging)
-                pad_token_id=rewriter_tokenizer.pad_token_id,
-                eos_token_id=rewriter_tokenizer.eos_token_id,
+            pad_token_id=rewriter_tokenizer.pad_token_id,
+            eos_token_id=rewriter_tokenizer.eos_token_id,
                 early_stopping=True
             )
         
         print(f"  ✓ Generation complete (output shape: {outputs.shape})")
-        if progress:
-            progress(0.9, desc="Decoding output...")
+        if progress is not None:
+            try:
+                progress(0.9, desc="Decoding output...")
+            except Exception as e:
+                print(f"[DEBUG] Progress call failed (non-fatal): {e}")
         
         # Decode immediately and move to CPU
         print(f"  Decoding output...")
         generated = rewriter_tokenizer.decode(outputs[0].cpu(), skip_special_tokens=True)
-        
-        # Extract only the generated part (after [/INST])
-        if "[/INST]" in generated:
-            generated = generated.split("[/INST]")[-1].strip()
-        
-        print(f"  ✓ Final output length: {len(generated)} chars")
-        return generated
     
+    # Extract only the generated part (after [/INST])
+    if "[/INST]" in generated:
+        generated = generated.split("[/INST]")[-1].strip()
+    
+        print(f"  ✓ Final output length: {len(generated)} chars")
+    return generated
+
     except RuntimeError as e:
         error_msg = str(e)
         print(f"  ✗ Generation RuntimeError: {error_msg}")
@@ -507,18 +510,17 @@ def process_article(article_text, title="", progress=None):
     truncated article is used for both classification and rewriting.
     
     Args:
-        progress: Gradio Progress tracker for UI updates
+        progress: Gradio Progress tracker for UI updates (injected by show_progress="full")
     """
     print(f"[DEBUG] process_article called - article_text length: {len(article_text) if article_text else 0}, title: {title}")
-    print(f"[DEBUG] Attempting to acquire inference lock...")
+    print(f"[DEBUG] progress parameter type: {type(progress)}")
     
-    # Use lock to prevent concurrent inference (thread-safe)
+    # Gradio's queue system handles concurrency - no need for external lock
+    # The lock was causing issues with Gradio's internal queue management on subsequent calls
     try:
-        with inference_lock:
-            print(f"[DEBUG] Lock acquired, calling _process_article_internal...")
-            result = _process_article_internal(article_text, title, progress)
-            print(f"[DEBUG] _process_article_internal completed, releasing lock...")
-            return result
+        result = _process_article_internal(article_text, title, progress)
+        print(f"[DEBUG] process_article completed successfully")
+        return result
     except Exception as e:
         print(f"[DEBUG] Exception in process_article: {str(e)}")
         import traceback
@@ -573,11 +575,11 @@ def _process_article_internal(article_text, title="", progress=None):
         
         # Step 2: Classification
         print(f"[DEBUG] Starting Step 2: Classification")
-        if progress:
+        if progress is not None:
             try:
                 progress(0.3, desc="Classifying article...")
             except Exception as e:
-                print(f"[DEBUG] Progress call failed in Step 2: {e}")
+                print(f"[DEBUG] Progress call failed (non-fatal): {e}")
         print(f"Step 2: Classification")
         print(f"[DEBUG] Calling classify_article with truncated article length: {len(truncated_article)}")
         predicted_label, confidence, confidence_scores = classify_article(truncated_article)
@@ -644,12 +646,18 @@ def _process_article_internal(article_text, title="", progress=None):
     # Rewrite if SAFE or SENSITIVE (using same truncated article)
     try:
         if predicted_label in ['SAFE', 'SENSITIVE']:
-            if progress:
-                progress(0.5, desc=f"Rewriting article ({predicted_label})...")
+            if progress is not None:
+                try:
+                    progress(0.5, desc=f"Rewriting article ({predicted_label})...")
+                except Exception as e:
+                    print(f"[DEBUG] Progress call failed (non-fatal): {e}")
             print(f"Step 3: Rewriting ({predicted_label})")
             rewritten_text = rewrite_article(truncated_article, title, predicted_label, progress)
-            if progress:
-                progress(0.95, desc="Finalizing...")
+            if progress is not None:
+                try:
+                    progress(0.95, desc="Finalizing...")
+                except Exception as e:
+                    print(f"[DEBUG] Progress call failed (non-fatal): {e}")
             print(f"✓ Rewriting complete (output length: {len(rewritten_text)} chars)")
             rewrite_status = f"✓ Rewritten as {predicted_label}"
         else:
@@ -706,12 +714,12 @@ def _process_article_internal(article_text, title="", progress=None):
     
     try:
         result = (
-            confidence_html,
-            original_display,
-            rewrite_display,
-            rewrite_status,
-            rewritten_text
-        )
+        confidence_html,
+        original_display,
+        rewrite_display,
+        rewrite_status,
+        rewritten_text
+    )
         print(f"[DEBUG] Return tuple created successfully, returning...")
         return result
     except Exception as e:
