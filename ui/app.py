@@ -321,13 +321,22 @@ def rewrite_article(article_text, title, label):
 
 def process_article(article_text, title=""):
     """Main processing function: classify and rewrite."""
-    log("")
-    log("=" * 80)
-    log("PROCESS_ARTICLE CALLED")
-    log("=" * 80)
-    log(f"Article length: {len(article_text) if article_text else 0} chars")
-    log(f"Title: {title}")
+    # CRITICAL: Force immediate output - multiple flushes to ensure visibility
+    sys.stdout.write("\n" + "=" * 80 + "\n")
+    sys.stdout.write("PROCESS_ARTICLE CALLED\n")
+    sys.stdout.write("=" * 80 + "\n")
+    sys.stdout.write(f"Article length: {len(article_text) if article_text else 0} chars\n")
+    sys.stdout.write(f"Title: {title}\n")
     sys.stdout.flush()
+    sys.stderr.write("PROCESS_ARTICLE CALLED (stderr)\n")
+    sys.stderr.flush()
+    
+    # Also use print with flush as backup
+    print("\n" + "=" * 80, flush=True)
+    print("PROCESS_ARTICLE CALLED", flush=True)
+    print("=" * 80, flush=True)
+    print(f"Article length: {len(article_text) if article_text else 0} chars", flush=True)
+    print(f"Title: {title}", flush=True)
     
     if not article_text or not article_text.strip():
         return (
@@ -548,7 +557,20 @@ def create_interface():
 
 
 if __name__ == "__main__":
+    # Force unbuffered output for immediate log visibility
+    import sys
+    sys.stdout = sys.__stdout__  # Ensure we're using real stdout
+    sys.stderr = sys.__stderr__  # Ensure we're using real stderr
+    
+    # Set Python to unbuffered mode
+    os.environ['PYTHONUNBUFFERED'] = '1'
+    
+    print("Starting MiniNewsAI app...", flush=True)
+    print("Python stdout is unbuffered", flush=True)
+    
     demo = create_interface()
+    
+    print("Interface created, launching...", flush=True)
     demo.launch(
         server_name="0.0.0.0",
         server_port=7860,
