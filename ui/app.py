@@ -663,10 +663,13 @@ def _process_article_internal(article_text, title="", progress=None):
         rewrite_status = "✗ Error during rewriting"
     
     # Format original article display (show truncated version that was actually processed)
+    # Escape HTML special characters in truncated_article
+    import html
+    truncated_article_escaped = html.escape(truncated_article)
     original_display = f"""
     <div style="background: #fff3cd; padding: 15px; border-radius: 5px; border-left: 4px solid #ffc107; color: #000;">
         <h4 style="margin-top: 0; color: #000;">Original Article {truncation_note}</h4>
-        <p style="white-space: pre-wrap; margin: 0; color: #000;">{truncated_article}</p>
+        <p style="white-space: pre-wrap; margin: 0; color: #000;">{truncated_article_escaped}</p>
     </div>
     """
     
