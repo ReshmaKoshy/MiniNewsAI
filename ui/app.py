@@ -512,7 +512,7 @@ def rewrite_article(article_text, title, label, progress=None):
         gc.collect()
 
 
-def process_article(article_text, title="", progress=None):
+def process_article(article_text, title="", progress=gr.Progress()):
     """Main processing function: classify and rewrite.
     
     Smart truncation is applied once at the beginning, then the same
@@ -521,8 +521,16 @@ def process_article(article_text, title="", progress=None):
     Args:
         progress: Gradio Progress tracker for UI updates (injected by show_progress="full")
     """
-    print(f"[DEBUG] process_article called - article_text length: {len(article_text) if article_text else 0}, title: {title}")
+    # Force flush to ensure logs appear immediately
+    import sys
+    sys.stdout.flush()
+    sys.stderr.flush()
+    
+    print(f"[DEBUG] ========== process_article CALLED ==========")
+    print(f"[DEBUG] article_text length: {len(article_text) if article_text else 0}")
+    print(f"[DEBUG] title: {title}")
     print(f"[DEBUG] progress parameter type: {type(progress)}")
+    sys.stdout.flush()
     
     # Gradio's queue system handles concurrency - no need for external lock
     # The lock was causing issues with Gradio's internal queue management on subsequent calls
@@ -825,12 +833,14 @@ def create_interface():
         )
         
         # Process button
+        print("[DEBUG] Setting up process_btn.click handler...")
         process_btn.click(
             fn=process_article,
             inputs=[article_input, title_input],
             outputs=[classification_output, original_output, rewrite_output, rewrite_status, raw_rewrite],
             show_progress="full"
         )
+        print("[DEBUG] process_btn.click handler set up successfully")
         
         gr.Markdown(
             """
