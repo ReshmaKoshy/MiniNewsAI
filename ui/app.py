@@ -444,8 +444,11 @@ def rewrite_article(article_text, title, label, progress=None):
         max_new_tokens = 350 if label == 'SENSITIVE' else 256
         print(f"  Starting generation (max_new_tokens: {max_new_tokens})...")
         
-        if progress:
-            progress(0.7, desc="Generating rewrite (this may take 30-60 seconds)...")
+        if progress is not None:
+            try:
+                progress(0.7, desc="Generating rewrite (this may take 30-60 seconds)...")
+            except Exception as e:
+                print(f"[DEBUG] Progress call failed (non-fatal): {e}")
         
         # Generate (using same parameters as training/validation)
         with torch.no_grad():
