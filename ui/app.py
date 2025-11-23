@@ -594,10 +594,29 @@ def _process_article_internal(article_text, title="", progress=None):
             )
     except ValueError as e:
         error_msg = f"<div style='color: red; padding: 10px; background: #ffe6e6; border-left: 4px solid red;'><strong>Error:</strong> {str(e)}</div>"
+        print(f"[DEBUG] ValueError caught, returning error: {str(e)}")
         return (error_msg, "", "", "✗ Error", "")
     except Exception as e:
         error_msg = f"<div style='color: red; padding: 10px; background: #ffe6e6; border-left: 4px solid red;'><strong>Error:</strong> {str(e)}</div>"
+        print(f"[DEBUG] Exception caught, returning error: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return (error_msg, "", "", "✗ Error", "")
+    
+    # Ensure all required variables are defined
+    if 'predicted_label' not in locals() or predicted_label is None:
+        print(f"[DEBUG] ERROR: predicted_label not defined!")
+        return ("<div style='color: red; padding: 10px;'>Error: Classification failed.</div>", "", "", "✗ Error", "")
+    
+    if 'truncation_note' not in locals():
+        truncation_note = ""
+        print(f"[DEBUG] WARNING: truncation_note not defined, using empty string")
+    
+    if 'truncated_article' not in locals():
+        print(f"[DEBUG] ERROR: truncated_article not defined!")
+        return ("<div style='color: red; padding: 10px;'>Error: Truncation failed.</div>", "", "", "✗ Error", "")
+    
+    print(f"[DEBUG] All variables defined: predicted_label={predicted_label}, truncation_note length={len(truncation_note)}, truncated_article length={len(truncated_article)}")
     
     # Create confidence display
     confidence_html = f"""
@@ -652,18 +671,20 @@ def _process_article_internal(article_text, title="", progress=None):
     """
     
     # Format rewritten article display
+    # Escape HTML special characters in rewritten_text
+    rewritten_text_escaped = html.escape(rewritten_text)
     if predicted_label in ['SAFE', 'SENSITIVE']:
         rewrite_display = f"""
         <div style="background: #d4edda; padding: 15px; border-radius: 5px; border-left: 4px solid #28a745; color: #000;">
             <h4 style="margin-top: 0; color: #000;">Kid-Safe Rewrite ({predicted_label})</h4>
-            <p style="white-space: pre-wrap; margin: 0; color: #000;">{rewritten_text}</p>
+            <p style="white-space: pre-wrap; margin: 0; color: #000;">{rewritten_text_escaped}</p>
         </div>
         """
     else:
         rewrite_display = f"""
         <div style="background: #f8d7da; padding: 15px; border-radius: 5px; border-left: 4px solid #dc3545; color: #000;">
             <h4 style="margin-top: 0; color: #000;">Cannot Rewrite</h4>
-            <p style="white-space: pre-wrap; margin: 0; color: #000;">{rewritten_text}</p>
+            <p style="white-space: pre-wrap; margin: 0; color: #000;">{rewritten_text_escaped}</p>
         </div>
         """
     
@@ -672,13 +693,29 @@ def _process_article_internal(article_text, title="", progress=None):
         torch.cuda.empty_cache()
     gc.collect()
     
-    return (
-        confidence_html,
-        original_display,
-        rewrite_display,
-        rewrite_status,
-        rewritten_text
-    )
+    # Debug: Print return values
+    print(f"[DEBUG] About to return results:")
+    print(f"[DEBUG] confidence_html length: {len(confidence_html)}")
+    print(f"[DEBUG] original_display length: {len(original_display)}")
+    print(f"[DEBUG] rewrite_display length: {len(rewrite_display)}")
+    print(f"[DEBUG] rewrite_status: {rewrite_status}")
+    print(f"[DEBUG] rewritten_text length: {len(rewritten_text)}")
+    
+    try:
+        result = (
+            confidence_html,
+            original_display,
+            rewrite_display,
+            rewrite_status,
+            rewritten_text
+        )
+        print(f"[DEBUG] Return tuple created successfully, returning...")
+        return result
+    except Exception as e:
+        print(f"[DEBUG] Error creating return tuple: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
 
 
 # Create Gradio interface
