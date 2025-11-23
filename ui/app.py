@@ -512,7 +512,7 @@ def rewrite_article(article_text, title, label, progress=None):
         gc.collect()
 
 
-def process_article(article_text, title="", progress=gr.Progress()):
+def process_article(article_text, title="", progress=None):
     """Main processing function: classify and rewrite.
     
     Smart truncation is applied once at the beginning, then the same
@@ -859,19 +859,25 @@ def create_interface():
 
 if __name__ == "__main__":
     # Create and launch interface
+    print("[DEBUG] Creating interface...")
     demo = create_interface()
+    print("[DEBUG] Interface created")
     
     # Configure queue for reliable handling of multiple requests
     # This ensures proper queue management and prevents UI hanging on subsequent calls
+    print("[DEBUG] Configuring queue...")
     demo.queue(
         default_concurrency_limit=1,  # Process one article at a time (models are large)
         max_size=10,  # Allow up to 10 queued requests
         api_open=False
     )
+    print("[DEBUG] Queue configured")
     
+    print("[DEBUG] Launching demo...")
     demo.launch(
         server_name="0.0.0.0",
         server_port=7860,
         share=False
     )
+    print("[DEBUG] Demo launched")
 
