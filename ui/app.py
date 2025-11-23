@@ -551,11 +551,11 @@ def process_article(article_text, title="", progress=None):
         rewritten_text = f"Error during rewriting: {str(e)}"
         rewrite_status = "✗ Error during rewriting"
     
-    # Format original article display (show full original, note if truncated)
+    # Format original article display (show truncated version that was actually processed)
     original_display = f"""
     <div style="background: #fff3cd; padding: 15px; border-radius: 5px; border-left: 4px solid #ffc107; color: #000;">
         <h4 style="margin-top: 0; color: #000;">Original Article {truncation_note}</h4>
-        <p style="white-space: pre-wrap; margin: 0; color: #000;">{original_article}</p>
+        <p style="white-space: pre-wrap; margin: 0; color: #000;">{truncated_article}</p>
     </div>
     """
     
