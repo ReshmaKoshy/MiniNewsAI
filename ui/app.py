@@ -513,10 +513,19 @@ def process_article(article_text, title="", progress=None):
         <h3 style="color: {LABEL_COLORS[predicted_label]}; margin-bottom: 10px;">
             Classification: {predicted_label} (Confidence: {confidence:.1%})
         </h3>
-        <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; color: #000;">
-            <p style="margin: 5px 0; color: #000;"><strong>SAFE:</strong> {confidence_scores['SAFE']:.1%}</p>
-            <p style="margin: 5px 0; color: #000;"><strong>SENSITIVE:</strong> {confidence_scores['SENSITIVE']:.1%}</p>
-            <p style="margin: 5px 0; color: #000;"><strong>UNSAFE:</strong> {confidence_scores['UNSAFE']:.1%}</p>
+        <div style="background: #f8f9fa; padding: 15px; border-radius: 5px;">
+            <p style="margin: 5px 0;">
+                <strong style="color: {LABEL_COLORS['SAFE']}; font-size: 14px; font-weight: bold;">🟢 SAFE:</strong> 
+                <span style="color: #000;">{confidence_scores['SAFE']:.1%}</span>
+            </p>
+            <p style="margin: 5px 0;">
+                <strong style="color: {LABEL_COLORS['SENSITIVE']}; font-size: 14px; font-weight: bold;">🟡 SENSITIVE:</strong> 
+                <span style="color: #000;">{confidence_scores['SENSITIVE']:.1%}</span>
+            </p>
+            <p style="margin: 5px 0;">
+                <strong style="color: {LABEL_COLORS['UNSAFE']}; font-size: 14px; font-weight: bold;">🔴 UNSAFE:</strong> 
+                <span style="color: #000;">{confidence_scores['UNSAFE']:.1%}</span>
+            </p>
         </div>
     </div>
     """
@@ -609,9 +618,7 @@ def create_interface():
                     placeholder="Enter article title (optional)...",
                     lines=1
                 )
-                with gr.Row():
-                    process_btn = gr.Button("🚀 Process Article", variant="primary", size="lg")
-                    cancel_btn = gr.Button("⏹️ Cancel", variant="stop", size="lg", visible=False)
+                process_btn = gr.Button("🚀 Process Article", variant="primary", size="lg")
                 
                 gr.Markdown("### Model Status")
                 model_status = gr.Textbox(
@@ -660,38 +667,12 @@ def create_interface():
             outputs=model_status
         )
         
-        # Process button with cancellation support
-        process_event = process_btn.click(
+        # Process button
+        process_btn.click(
             fn=process_article,
             inputs=[article_input, title_input],
             outputs=[classification_output, original_output, rewrite_output, rewrite_status, raw_rewrite],
             show_progress="full"
-        )
-        
-        # Cancel button functionality
-        def toggle_cancel_btn():
-            return gr.update(visible=True)
-        
-        def hide_cancel_btn():
-            return gr.update(visible=False)
-        
-        # Show cancel button when processing starts
-        process_btn.click(
-            fn=toggle_cancel_btn,
-            outputs=cancel_btn
-        )
-        
-        # Hide cancel button and cancel processing when cancel is clicked
-        cancel_btn.click(
-            fn=lambda: (gr.update(visible=False),),
-            outputs=[cancel_btn],
-            cancels=[process_event]
-        )
-        
-        # Hide cancel button when processing completes
-        process_event.then(
-            fn=hide_cancel_btn,
-            outputs=[cancel_btn]
         )
         
         gr.Markdown(
