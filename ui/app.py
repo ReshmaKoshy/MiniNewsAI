@@ -388,7 +388,7 @@ def classify_article(article_text):
         gc.collect()
 
 
-def rewrite_article(article_text, title, label, progress=None):
+def rewrite_article(article_text, title, label):
     """Rewrite article to be kid-safe."""
     if rewriter_model is None or rewriter_tokenizer is None:
         raise ValueError("Rewriter model not loaded. Please click 'Load Models' first.")
@@ -408,21 +408,11 @@ def rewrite_article(article_text, title, label, progress=None):
     outputs = None
     
     try:
-        if progress is not None:
-            try:
-                progress(0.6, desc="Preparing generation...")
-            except Exception as e:
-                print(f"[DEBUG] Progress call failed (non-fatal): {e}")
         print(f"  Creating prompt (label: {label}, article length: {len(article_text)} chars)")
         # Create prompt
         instruction = create_instruction_prompt(label, article_text, title)
         prompt = f"[INST] {instruction} [/INST]\n\n"
         
-        if progress is not None:
-            try:
-                progress(0.65, desc="Tokenizing input...")
-            except Exception as e:
-                print(f"[DEBUG] Progress call failed (non-fatal): {e}")
         print(f"  Tokenizing prompt")
         # Tokenize
         inputs = rewriter_tokenizer(
@@ -444,12 +434,6 @@ def rewrite_article(article_text, title, label, progress=None):
         max_new_tokens = 350 if label == 'SENSITIVE' else 256
         print(f"  Starting generation (max_new_tokens: {max_new_tokens})...")
         
-        if progress is not None:
-            try:
-                progress(0.7, desc="Generating rewrite (this may take 30-60 seconds)...")
-            except Exception as e:
-                print(f"[DEBUG] Progress call failed (non-fatal): {e}")
-        
         # Generate (using same parameters as training/validation)
         with torch.no_grad():
             outputs = rewriter_model.generate(
@@ -466,11 +450,6 @@ def rewrite_article(article_text, title, label, progress=None):
             )
         
         print(f"  ✓ Generation complete (output shape: {outputs.shape})")
-        if progress is not None:
-            try:
-                progress(0.9, desc="Decoding output...")
-            except Exception as e:
-                print(f"[DEBUG] Progress call failed (non-fatal): {e}")
         
         # Decode immediately and move to CPU
         print(f"  Decoding output...")
@@ -512,30 +491,16 @@ def rewrite_article(article_text, title, label, progress=None):
         gc.collect()
 
 
-def process_article(article_text, title="", progress=None):
+def process_article(article_text, title=""):
     """Main processing function: classify and rewrite.
     
     Smart truncation is applied once at the beginning, then the same
     truncated article is used for both classification and rewriting.
-    
-    Args:
-        progress: Gradio Progress tracker for UI updates (injected by show_progress="full")
     """
-    # Force flush to ensure logs appear immediately
-    import sys
-    sys.stdout.flush()
-    sys.stderr.flush()
+    print(f"[DEBUG] process_article called - article_text length: {len(article_text) if article_text else 0}, title: {title}")
     
-    print(f"[DEBUG] ========== process_article CALLED ==========")
-    print(f"[DEBUG] article_text length: {len(article_text) if article_text else 0}")
-    print(f"[DEBUG] title: {title}")
-    print(f"[DEBUG] progress parameter type: {type(progress)}")
-    sys.stdout.flush()
-    
-    # Gradio's queue system handles concurrency - no need for external lock
-    # The lock was causing issues with Gradio's internal queue management on subsequent calls
     try:
-        result = _process_article_internal(article_text, title, progress)
+        result = _process_article_internal(article_text, title)
         print(f"[DEBUG] process_article completed successfully")
         return result
     except Exception as e:
@@ -545,8 +510,8 @@ def process_article(article_text, title="", progress=None):
         raise
 
 
-def _process_article_internal(article_text, title="", progress=None):
-    """Internal processing function (called with lock held)."""
+def _process_article_internal(article_text, title=""):
+    """Internal processing function."""
     print(f"[DEBUG] _process_article_internal entered")
     try:
         print("=" * 80)
@@ -573,11 +538,6 @@ def _process_article_internal(article_text, title="", progress=None):
             title = "Untitled Article"
         
         # Step 1: Smart truncation
-        if progress is not None:
-            try:
-                progress(0.1, desc="Truncating article...")
-            except Exception as e:
-                print(f"[DEBUG] Progress call failed (non-fatal): {e}")
         print(f"Step 1: Smart truncation (article length: {len(article_text)} chars)")
         truncated_article = smart_truncate_article(
             article_text, 
@@ -595,11 +555,6 @@ def _process_article_internal(article_text, title="", progress=None):
         
         # Step 2: Classification
         print(f"[DEBUG] Starting Step 2: Classification")
-        if progress is not None:
-            try:
-                progress(0.3, desc="Classifying article...")
-            except Exception as e:
-                print(f"[DEBUG] Progress call failed (non-fatal): {e}")
         print(f"Step 2: Classification")
         print(f"[DEBUG] Calling classify_article with truncated article length: {len(truncated_article)}")
         predicted_label, confidence, confidence_scores = classify_article(truncated_article)
@@ -666,18 +621,8 @@ def _process_article_internal(article_text, title="", progress=None):
     # Rewrite if SAFE or SENSITIVE (using same truncated article)
     try:
         if predicted_label in ['SAFE', 'SENSITIVE']:
-            if progress is not None:
-                try:
-                    progress(0.5, desc=f"Rewriting article ({predicted_label})...")
-                except Exception as e:
-                    print(f"[DEBUG] Progress call failed (non-fatal): {e}")
             print(f"Step 3: Rewriting ({predicted_label})")
-            rewritten_text = rewrite_article(truncated_article, title, predicted_label, progress)
-            if progress is not None:
-                try:
-                    progress(0.95, desc="Finalizing...")
-                except Exception as e:
-                    print(f"[DEBUG] Progress call failed (non-fatal): {e}")
+            rewritten_text = rewrite_article(truncated_article, title, predicted_label)
             print(f"✓ Rewriting complete (output length: {len(rewritten_text)} chars)")
             rewrite_status = f"✓ Rewritten as {predicted_label}"
         else:
@@ -833,14 +778,12 @@ def create_interface():
         )
         
         # Process button
-        print("[DEBUG] Setting up process_btn.click handler...")
         process_btn.click(
             fn=process_article,
             inputs=[article_input, title_input],
             outputs=[classification_output, original_output, rewrite_output, rewrite_status, raw_rewrite],
             show_progress="full"
         )
-        print("[DEBUG] process_btn.click handler set up successfully")
         
         gr.Markdown(
             """
@@ -859,25 +802,19 @@ def create_interface():
 
 if __name__ == "__main__":
     # Create and launch interface
-    print("[DEBUG] Creating interface...")
     demo = create_interface()
-    print("[DEBUG] Interface created")
     
     # Configure queue for reliable handling of multiple requests
     # This ensures proper queue management and prevents UI hanging on subsequent calls
-    print("[DEBUG] Configuring queue...")
     demo.queue(
         default_concurrency_limit=1,  # Process one article at a time (models are large)
         max_size=10,  # Allow up to 10 queued requests
         api_open=False
     )
-    print("[DEBUG] Queue configured")
     
-    print("[DEBUG] Launching demo...")
     demo.launch(
         server_name="0.0.0.0",
         server_port=7860,
         share=False
     )
-    print("[DEBUG] Demo launched")
 
