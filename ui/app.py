@@ -497,54 +497,41 @@ def process_article(article_text, title=""):
     Smart truncation is applied once at the beginning, then the same
     truncated article is used for both classification and rewriting.
     """
-    print(f"[DEBUG] process_article called - article_text length: {len(article_text) if article_text else 0}, title: {title}")
+    # Immediate logging - flush to ensure it appears
+    import sys
+    print("=" * 80, flush=True)
+    print("PROCESS_ARTICLE CALLED", flush=True)
+    print(f"Article length: {len(article_text) if article_text else 0}", flush=True)
+    print(f"Title: {title}", flush=True)
+    sys.stdout.flush()
+    
+    if not article_text or not article_text.strip():
+        return (
+            "<div style='color: #666; padding: 10px;'>Please enter an article to process.</div>",
+            "",
+            "",
+            "",
+            ""
+        )
+    
+    # Check if models are loaded
+    if classifier_model is None or classifier_tokenizer is None:
+        error_msg = "<div style='color: red; padding: 10px; background: #ffe6e6; border-left: 4px solid red;'><strong>⚠️ Models not loaded!</strong><br>Please click '⚙️ Load Models' first.</div>"
+        return (error_msg, "", "", "✗ Models not loaded", "")
+    
+    # Default title if not provided
+    if not title or not title.strip():
+        title = "Untitled Article"
     
     try:
-        result = _process_article_internal(article_text, title)
-        print(f"[DEBUG] process_article completed successfully")
-        return result
-    except Exception as e:
-        print(f"[DEBUG] Exception in process_article: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        raise
-
-
-def _process_article_internal(article_text, title=""):
-    """Internal processing function."""
-    print(f"[DEBUG] _process_article_internal entered")
-    try:
-        print("=" * 80)
-        print("PROCESSING ARTICLE")
-        print("=" * 80)
-        print(f"[DEBUG] Article text received: {len(article_text) if article_text else 0} chars")
-        
-        if not article_text or not article_text.strip():
-            return (
-                "<div style='color: #666; padding: 10px;'>Please enter an article to process.</div>",
-                "",
-                "",
-                "",
-                ""
-            )
-        
-        # Check if models are loaded
-        if classifier_model is None or classifier_tokenizer is None:
-            error_msg = "<div style='color: red; padding: 10px; background: #ffe6e6; border-left: 4px solid red;'><strong>⚠️ Models not loaded!</strong><br>Please click '⚙️ Load Models' first.</div>"
-            return (error_msg, "", "", "✗ Models not loaded", "")
-        
-        # Default title if not provided
-        if not title or not title.strip():
-            title = "Untitled Article"
-        
         # Step 1: Smart truncation
-        print(f"Step 1: Smart truncation (article length: {len(article_text)} chars)")
+        print(f"Step 1: Smart truncation (article length: {len(article_text)} chars)", flush=True)
         truncated_article = smart_truncate_article(
             article_text, 
             max_tokens=430,
             tokenizer=classifier_tokenizer
         )
-        print(f"✓ Truncation complete (truncated: {truncated_article != article_text})")
+        print(f"✓ Truncation complete (truncated: {truncated_article != article_text})", flush=True)
         
         # Store original for display
         original_article = article_text
@@ -554,12 +541,9 @@ def _process_article_internal(article_text, title=""):
             truncation_note = ""
         
         # Step 2: Classification
-        print(f"[DEBUG] Starting Step 2: Classification")
-        print(f"Step 2: Classification")
-        print(f"[DEBUG] Calling classify_article with truncated article length: {len(truncated_article)}")
+        print(f"Step 2: Classification", flush=True)
         predicted_label, confidence, confidence_scores = classify_article(truncated_article)
-        print(f"[DEBUG] classify_article returned: {predicted_label}, confidence: {confidence}")
-        print(f"✓ Classification: {predicted_label} (confidence: {confidence:.2%})")
+        print(f"✓ Classification: {predicted_label} (confidence: {confidence:.2%})", flush=True)
         
         if predicted_label is None:
             return (
@@ -569,129 +553,95 @@ def _process_article_internal(article_text, title=""):
                 "",
                 ""
             )
-    except ValueError as e:
-        error_msg = f"<div style='color: red; padding: 10px; background: #ffe6e6; border-left: 4px solid red;'><strong>Error:</strong> {str(e)}</div>"
-        print(f"[DEBUG] ValueError caught, returning error: {str(e)}")
-        return (error_msg, "", "", "✗ Error", "")
-    except Exception as e:
-        error_msg = f"<div style='color: red; padding: 10px; background: #ffe6e6; border-left: 4px solid red;'><strong>Error:</strong> {str(e)}</div>"
-        print(f"[DEBUG] Exception caught, returning error: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return (error_msg, "", "", "✗ Error", "")
-    
-    # Ensure all required variables are defined
-    if 'predicted_label' not in locals() or predicted_label is None:
-        print(f"[DEBUG] ERROR: predicted_label not defined!")
-        return ("<div style='color: red; padding: 10px;'>Error: Classification failed.</div>", "", "", "✗ Error", "")
-    
-    if 'truncation_note' not in locals():
-        truncation_note = ""
-        print(f"[DEBUG] WARNING: truncation_note not defined, using empty string")
-    
-    if 'truncated_article' not in locals():
-        print(f"[DEBUG] ERROR: truncated_article not defined!")
-        return ("<div style='color: red; padding: 10px;'>Error: Truncation failed.</div>", "", "", "✗ Error", "")
-    
-    print(f"[DEBUG] All variables defined: predicted_label={predicted_label}, truncation_note length={len(truncation_note)}, truncated_article length={len(truncated_article)}")
-    
-    # Create confidence display
-    confidence_html = f"""
-    <div style="margin: 10px 0;">
-        <h3 style="color: {LABEL_COLORS[predicted_label]}; margin-bottom: 10px;">
-            Classification: {predicted_label} (Confidence: {confidence:.1%})
-        </h3>
-        <div style="background: #f8f9fa; padding: 15px; border-radius: 5px;">
-            <p style="margin: 5px 0;">
-                <strong style="color: {LABEL_COLORS['SAFE']}; font-size: 14px; font-weight: bold;">🟢 SAFE:</strong> 
-                <span style="color: #000;">{confidence_scores['SAFE']:.1%}</span>
-            </p>
-            <p style="margin: 5px 0;">
-                <strong style="color: {LABEL_COLORS['SENSITIVE']}; font-size: 14px; font-weight: bold;">🟡 SENSITIVE:</strong> 
-                <span style="color: #000;">{confidence_scores['SENSITIVE']:.1%}</span>
-            </p>
-            <p style="margin: 5px 0;">
-                <strong style="color: {LABEL_COLORS['UNSAFE']}; font-size: 14px; font-weight: bold;">🔴 UNSAFE:</strong> 
-                <span style="color: #000;">{confidence_scores['UNSAFE']:.1%}</span>
-            </p>
+        
+        # Create confidence display
+        confidence_html = f"""
+        <div style="margin: 10px 0;">
+            <h3 style="color: {LABEL_COLORS[predicted_label]}; margin-bottom: 10px;">
+                Classification: {predicted_label} (Confidence: {confidence:.1%})
+            </h3>
+            <div style="background: #f8f9fa; padding: 15px; border-radius: 5px;">
+                <p style="margin: 5px 0;">
+                    <strong style="color: {LABEL_COLORS['SAFE']}; font-size: 14px; font-weight: bold;">🟢 SAFE:</strong> 
+                    <span style="color: #000;">{confidence_scores['SAFE']:.1%}</span>
+                </p>
+                <p style="margin: 5px 0;">
+                    <strong style="color: {LABEL_COLORS['SENSITIVE']}; font-size: 14px; font-weight: bold;">🟡 SENSITIVE:</strong> 
+                    <span style="color: #000;">{confidence_scores['SENSITIVE']:.1%}</span>
+                </p>
+                <p style="margin: 5px 0;">
+                    <strong style="color: {LABEL_COLORS['UNSAFE']}; font-size: 14px; font-weight: bold;">🔴 UNSAFE:</strong> 
+                    <span style="color: #000;">{confidence_scores['UNSAFE']:.1%}</span>
+                </p>
+            </div>
         </div>
-    </div>
-    """
-    
-    # Rewrite if SAFE or SENSITIVE (using same truncated article)
-    try:
+        """
+        
+        # Rewrite if SAFE or SENSITIVE
+        try:
+            if predicted_label in ['SAFE', 'SENSITIVE']:
+                print(f"Step 3: Rewriting ({predicted_label})", flush=True)
+                rewritten_text = rewrite_article(truncated_article, title, predicted_label)
+                print(f"✓ Rewriting complete (output length: {len(rewritten_text)} chars)", flush=True)
+                rewrite_status = f"✓ Rewritten as {predicted_label}"
+            else:
+                rewritten_text = "⚠️ This article is classified as UNSAFE and cannot be rewritten for children."
+                rewrite_status = "✗ Cannot rewrite UNSAFE content"
+        except Exception as e:
+            rewritten_text = f"Error during rewriting: {str(e)}"
+            rewrite_status = "✗ Error during rewriting"
+            print(f"Error during rewriting: {str(e)}", flush=True)
+        
+        # Format displays
+        import html
+        truncated_article_escaped = html.escape(truncated_article)
+        original_display = f"""
+        <div style="background: #fff3cd; padding: 15px; border-radius: 5px; border-left: 4px solid #ffc107; color: #000;">
+            <h4 style="margin-top: 0; color: #000;">Original Article {truncation_note}</h4>
+            <p style="white-space: pre-wrap; margin: 0; color: #000;">{truncated_article_escaped}</p>
+        </div>
+        """
+        
+        rewritten_text_escaped = html.escape(rewritten_text)
         if predicted_label in ['SAFE', 'SENSITIVE']:
-            print(f"Step 3: Rewriting ({predicted_label})")
-            rewritten_text = rewrite_article(truncated_article, title, predicted_label)
-            print(f"✓ Rewriting complete (output length: {len(rewritten_text)} chars)")
-            rewrite_status = f"✓ Rewritten as {predicted_label}"
+            rewrite_display = f"""
+            <div style="background: #d4edda; padding: 15px; border-radius: 5px; border-left: 4px solid #28a745; color: #000;">
+                <h4 style="margin-top: 0; color: #000;">Kid-Safe Rewrite ({predicted_label})</h4>
+                <p style="white-space: pre-wrap; margin: 0; color: #000;">{rewritten_text_escaped}</p>
+            </div>
+            """
         else:
-            rewritten_text = "⚠️ This article is classified as UNSAFE and cannot be rewritten for children."
-            rewrite_status = "✗ Cannot rewrite UNSAFE content"
-    except ValueError as e:
-        rewritten_text = f"Error: {str(e)}"
-        rewrite_status = "✗ Error during rewriting"
+            rewrite_display = f"""
+            <div style="background: #f8d7da; padding: 15px; border-radius: 5px; border-left: 4px solid #dc3545; color: #000;">
+                <h4 style="margin-top: 0; color: #000;">Cannot Rewrite</h4>
+                <p style="white-space: pre-wrap; margin: 0; color: #000;">{rewritten_text_escaped}</p>
+            </div>
+            """
+        
+        # Final cleanup
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        gc.collect()
+        
+        print("PROCESS_ARTICLE COMPLETED", flush=True)
+        print("=" * 80, flush=True)
+        sys.stdout.flush()
+        
+        return (
+            confidence_html,
+            original_display,
+            rewrite_display,
+            rewrite_status,
+            rewritten_text
+        )
+        
     except Exception as e:
-        rewritten_text = f"Error during rewriting: {str(e)}"
-        rewrite_status = "✗ Error during rewriting"
-    
-    # Format original article display (show truncated version that was actually processed)
-    # Escape HTML special characters in truncated_article
-    import html
-    truncated_article_escaped = html.escape(truncated_article)
-    original_display = f"""
-    <div style="background: #fff3cd; padding: 15px; border-radius: 5px; border-left: 4px solid #ffc107; color: #000;">
-        <h4 style="margin-top: 0; color: #000;">Original Article {truncation_note}</h4>
-        <p style="white-space: pre-wrap; margin: 0; color: #000;">{truncated_article_escaped}</p>
-    </div>
-    """
-    
-    # Format rewritten article display
-    # Escape HTML special characters in rewritten_text
-    rewritten_text_escaped = html.escape(rewritten_text)
-    if predicted_label in ['SAFE', 'SENSITIVE']:
-        rewrite_display = f"""
-        <div style="background: #d4edda; padding: 15px; border-radius: 5px; border-left: 4px solid #28a745; color: #000;">
-            <h4 style="margin-top: 0; color: #000;">Kid-Safe Rewrite ({predicted_label})</h4>
-            <p style="white-space: pre-wrap; margin: 0; color: #000;">{rewritten_text_escaped}</p>
-        </div>
-        """
-    else:
-        rewrite_display = f"""
-        <div style="background: #f8d7da; padding: 15px; border-radius: 5px; border-left: 4px solid #dc3545; color: #000;">
-            <h4 style="margin-top: 0; color: #000;">Cannot Rewrite</h4>
-            <p style="white-space: pre-wrap; margin: 0; color: #000;">{rewritten_text_escaped}</p>
-        </div>
-        """
-    
-    # Final cleanup before returning
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-    gc.collect()
-    
-    # Debug: Print return values
-    print(f"[DEBUG] About to return results:")
-    print(f"[DEBUG] confidence_html length: {len(confidence_html)}")
-    print(f"[DEBUG] original_display length: {len(original_display)}")
-    print(f"[DEBUG] rewrite_display length: {len(rewrite_display)}")
-    print(f"[DEBUG] rewrite_status: {rewrite_status}")
-    print(f"[DEBUG] rewritten_text length: {len(rewritten_text)}")
-    
-    try:
-        result = (
-        confidence_html,
-        original_display,
-        rewrite_display,
-        rewrite_status,
-        rewritten_text
-    )
-        print(f"[DEBUG] Return tuple created successfully, returning...")
-        return result
-    except Exception as e:
-        print(f"[DEBUG] Error creating return tuple: {e}")
+        print(f"ERROR in process_article: {str(e)}", flush=True)
         import traceback
         traceback.print_exc()
-        raise
+        sys.stdout.flush()
+        error_msg = f"<div style='color: red; padding: 10px; background: #ffe6e6; border-left: 4px solid red;'><strong>Error:</strong> {str(e)}</div>"
+        return (error_msg, "", "", "✗ Error", "")
 
 
 # Create Gradio interface
@@ -803,8 +753,8 @@ if __name__ == "__main__":
     # Create and launch interface
     demo = create_interface()
     
-    # Simple queue configuration for sequential inference
-    demo.queue(default_concurrency_limit=1)
+    # No queue configuration - let Gradio handle it naturally
+    # Queue was causing blocking issues on first call
     
     demo.launch(
         server_name="0.0.0.0",
