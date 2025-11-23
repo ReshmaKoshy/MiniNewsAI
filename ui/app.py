@@ -408,15 +408,21 @@ def rewrite_article(article_text, title, label, progress=None):
     outputs = None
     
     try:
-        if progress:
+    if progress is not None:
+        try:
             progress(0.6, desc="Preparing generation...")
-        print(f"  Creating prompt (label: {label}, article length: {len(article_text)} chars)")
+        except Exception as e:
+            print(f"[DEBUG] Progress call failed (non-fatal): {e}")
+    print(f"  Creating prompt (label: {label}, article length: {len(article_text)} chars)")
     # Create prompt
     instruction = create_instruction_prompt(label, article_text, title)
     prompt = f"[INST] {instruction} [/INST]\n\n"
     
-        if progress:
+    if progress is not None:
+        try:
             progress(0.65, desc="Tokenizing input...")
+        except Exception as e:
+            print(f"[DEBUG] Progress call failed (non-fatal): {e}")
         print(f"  Tokenizing prompt")
     # Tokenize
     inputs = rewriter_tokenizer(
@@ -556,8 +562,11 @@ def _process_article_internal(article_text, title="", progress=None):
             title = "Untitled Article"
         
         # Step 1: Smart truncation
-        if progress:
-            progress(0.1, desc="Truncating article...")
+        if progress is not None:
+            try:
+                progress(0.1, desc="Truncating article...")
+            except Exception as e:
+                print(f"[DEBUG] Progress call failed (non-fatal): {e}")
         print(f"Step 1: Smart truncation (article length: {len(article_text)} chars)")
         truncated_article = smart_truncate_article(
             article_text, 
