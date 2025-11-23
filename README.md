@@ -6,19 +6,7 @@ MiniNewsAI is a deep learning system designed to classify and reframe news artic
 
 ## System Architecture
 
-### Pipeline Flow
-
-```
-Input News Articles
-    ↓
-[Multiclass Classifier Training] → RoBERTa-base (SAFE/SENSITIVE/UNSAFE)
-    ↓
-[Content Reframer Training] → Mistral-7B-Instruct with LoRA
-    ↓
-[Inference Pipeline] → Classify → Reframe based on label
-    ↓
-Kid-Safe Rewritten Article
-```
+![System architecture diagram](docs/architecture/architecture_diagram.jpg)
 
 ## Dataset
 
