@@ -8,6 +8,8 @@ import torch
 import gradio as gr
 import numpy as np
 import re
+import gc
+import threading
 from transformers import (
     RobertaTokenizer, 
     RobertaForSequenceClassification,
@@ -31,6 +33,9 @@ classifier_model = None
 classifier_tokenizer = None
 rewriter_model = None
 rewriter_tokenizer = None
+
+# Lock for thread-safe inference (prevent concurrent processing)
+inference_lock = threading.Lock()
 
 # Label mapping
 LABEL_NAMES = ['SAFE', 'SENSITIVE', 'UNSAFE']
@@ -318,38 +323,69 @@ def classify_article(article_text):
     if not article_text or not article_text.strip():
         return None, None, None
     
-    # Tokenize (article is already truncated, but add safety truncation)
-    inputs = classifier_tokenizer(
-        article_text,
-        return_tensors="pt",
-        truncation=True,
-        max_length=512,
-        padding=True
-    ).to(device)
+    # Ensure model is in eval mode
+    classifier_model.eval()
     
-    # Predict
-    with torch.no_grad():
-        outputs = classifier_model(**inputs)
-        logits = outputs.logits
-        # Convert to float32 for operations (bfloat16 may not be supported in numpy)
-        logits = logits.float()
-        probs = torch.nn.functional.softmax(logits, dim=-1)
-        predicted_class = torch.argmax(logits, dim=-1).item()
+    # Clear CUDA cache before inference
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
     
-    # Get probabilities (convert to float32 first)
-    probabilities = probs[0].cpu().float().numpy()
+    inputs = None
+    outputs = None
+    logits = None
+    probs = None
     
-    # Get label name
-    predicted_label = LABEL_NAMES[predicted_class]
-    confidence = float(probabilities[predicted_class])
+    try:
+        # Tokenize (article is already truncated, but add safety truncation)
+        inputs = classifier_tokenizer(
+            article_text,
+            return_tensors="pt",
+            truncation=True,
+            max_length=512,
+            padding=True
+        ).to(device)
+        
+        # Predict
+        with torch.no_grad():
+            outputs = classifier_model(**inputs)
+            logits = outputs.logits
+            # Convert to float32 for operations (bfloat16 may not be supported in numpy)
+            logits = logits.float()
+            probs = torch.nn.functional.softmax(logits, dim=-1)
+            predicted_class = torch.argmax(logits, dim=-1).item()
+        
+        # Get probabilities (convert to float32 first, move to CPU immediately)
+        probabilities = probs[0].cpu().float().numpy()
+        
+        # Get label name
+        predicted_label = LABEL_NAMES[predicted_class]
+        confidence = float(probabilities[predicted_class])
+        
+        # Create confidence scores dict
+        confidence_scores = {
+            LABEL_NAMES[i]: float(probabilities[i]) 
+            for i in range(len(LABEL_NAMES))
+        }
+        
+        return predicted_label, confidence, confidence_scores
     
-    # Create confidence scores dict
-    confidence_scores = {
-        LABEL_NAMES[i]: float(probabilities[i]) 
-        for i in range(len(LABEL_NAMES))
-    }
-    
-    return predicted_label, confidence, confidence_scores
+    finally:
+        # Explicit cleanup of tensors
+        if inputs is not None:
+            del inputs
+        if outputs is not None:
+            del outputs
+        if logits is not None:
+            del logits
+        if probs is not None:
+            del probs
+        
+        # Clear CUDA cache after inference
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        
+        # Force garbage collection
+        gc.collect()
 
 
 def rewrite_article(article_text, title, label, progress=None):
@@ -363,58 +399,85 @@ def rewrite_article(article_text, title, label, progress=None):
     if label == 'UNSAFE':
         return "⚠️ This article is classified as UNSAFE and cannot be rewritten. Please use a different article."
     
-    if progress:
-        progress(0.6, desc="Preparing generation...")
-    print(f"  Creating prompt (label: {label}, article length: {len(article_text)} chars)")
-    # Create prompt
-    instruction = create_instruction_prompt(label, article_text, title)
-    prompt = f"[INST] {instruction} [/INST]\n\n"
-    
-    if progress:
-        progress(0.65, desc="Tokenizing input...")
-    print(f"  Tokenizing prompt")
-    # Tokenize
-    inputs = rewriter_tokenizer(
-        prompt,
-        return_tensors="pt",
-        truncation=True,
-        max_length=512
-    ).to(device)
-    print(f"  Input tokens: {inputs['input_ids'].shape[1]}")
-    
-    # Generate (using same parameters as training/validation)
+    # Ensure model is in eval mode and clear cache before starting
     rewriter_model.eval()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
     
-    max_new_tokens = 350 if label == 'SENSITIVE' else 256
-    print(f"  Starting generation (max_new_tokens: {max_new_tokens})...")
-    print(f"  Device: {device}, Model device: {next(rewriter_model.parameters()).device}")
+    inputs = None
+    outputs = None
     
     try:
+        if progress:
+            progress(0.6, desc="Preparing generation...")
+        print(f"  Creating prompt (label: {label}, article length: {len(article_text)} chars)")
+        # Create prompt
+        instruction = create_instruction_prompt(label, article_text, title)
+        prompt = f"[INST] {instruction} [/INST]\n\n"
+        
+        if progress:
+            progress(0.65, desc="Tokenizing input...")
+        print(f"  Tokenizing prompt")
+        # Tokenize
+        inputs = rewriter_tokenizer(
+            prompt,
+            return_tensors="pt",
+            truncation=True,
+            max_length=512
+        ).to(device)
+        print(f"  Input tokens: {inputs['input_ids'].shape[1]}")
+        
+        # Get model device once (avoid repeated calls)
+        model_device = next(rewriter_model.parameters()).device
+        print(f"  Device: {device}, Model device: {model_device}")
+        
+        # Ensure inputs are on correct device
+        if inputs['input_ids'].device != model_device:
+            inputs = {k: v.to(model_device) for k, v in inputs.items()}
+        
+        max_new_tokens = 350 if label == 'SENSITIVE' else 256
+        print(f"  Starting generation (max_new_tokens: {max_new_tokens})...")
+        
+        if progress:
+            progress(0.7, desc="Generating rewrite (this may take 30-60 seconds)...")
+        
+        # Generate (using same parameters as training/validation)
         with torch.no_grad():
-            # Ensure inputs are on correct device
-            if inputs['input_ids'].device != next(rewriter_model.parameters()).device:
-                inputs = {k: v.to(next(rewriter_model.parameters()).device) for k, v in inputs.items()}
-            
-            if progress:
-                progress(0.7, desc="Generating rewrite (this may take 30-60 seconds)...")
-            
             outputs = rewriter_model.generate(
                 **inputs,
                 max_new_tokens=max_new_tokens,
                 temperature=0.7,  # Same as training
                 top_p=0.9,  # Same as training
                 do_sample=True,  # Same as training
+                repetition_penalty=1.2,  # Prevent excessive repetition (critical for sequential inference)
+                no_repeat_ngram_size=3,  # Prevent repeating 3-grams (prevents hanging)
                 pad_token_id=rewriter_tokenizer.pad_token_id,
                 eos_token_id=rewriter_tokenizer.eos_token_id,
                 early_stopping=True
             )
+        
         print(f"  ✓ Generation complete (output shape: {outputs.shape})")
         if progress:
             progress(0.9, desc="Decoding output...")
+        
+        # Decode immediately and move to CPU
+        print(f"  Decoding output...")
+        generated = rewriter_tokenizer.decode(outputs[0].cpu(), skip_special_tokens=True)
+        
+        # Extract only the generated part (after [/INST])
+        if "[/INST]" in generated:
+            generated = generated.split("[/INST]")[-1].strip()
+        
+        print(f"  ✓ Final output length: {len(generated)} chars")
+        return generated
+    
     except RuntimeError as e:
         error_msg = str(e)
         print(f"  ✗ Generation RuntimeError: {error_msg}")
         if "out of memory" in error_msg.lower():
+            # Clear cache on OOM
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             raise Exception("GPU out of memory. Try reducing max_new_tokens or using a shorter article.")
         raise
     except Exception as e:
@@ -422,17 +485,19 @@ def rewrite_article(article_text, title, label, progress=None):
         import traceback
         traceback.print_exc()
         raise
-    
-    # Decode
-    print(f"  Decoding output...")
-    generated = rewriter_tokenizer.decode(outputs[0], skip_special_tokens=True)
-    
-    # Extract only the generated part (after [/INST])
-    if "[/INST]" in generated:
-        generated = generated.split("[/INST]")[-1].strip()
-    
-    print(f"  ✓ Final output length: {len(generated)} chars")
-    return generated
+    finally:
+        # Explicit cleanup of tensors
+        if inputs is not None:
+            del inputs
+        if outputs is not None:
+            del outputs
+        
+        # Clear CUDA cache after inference (critical for sequential calls)
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        
+        # Force garbage collection
+        gc.collect()
 
 
 def process_article(article_text, title="", progress=None):
@@ -444,6 +509,13 @@ def process_article(article_text, title="", progress=None):
     Args:
         progress: Gradio Progress tracker for UI updates
     """
+    # Use lock to prevent concurrent inference (thread-safe)
+    with inference_lock:
+        return _process_article_internal(article_text, title, progress)
+
+
+def _process_article_internal(article_text, title="", progress=None):
+    """Internal processing function (called with lock held)."""
     try:
         print("=" * 80)
         print("PROCESSING ARTICLE")
@@ -574,6 +646,11 @@ def process_article(article_text, title="", progress=None):
             <p style="white-space: pre-wrap; margin: 0; color: #000;">{rewritten_text}</p>
         </div>
         """
+    
+    # Final cleanup before returning
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    gc.collect()
     
     return (
         confidence_html,
