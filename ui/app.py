@@ -284,13 +284,12 @@ def rewrite_article(article_text, title, label):
             return_tensors="pt",
             truncation=True,
             max_length=512
-        ).to(device)
+        )
         
-        # Get model device once and cache it (avoid repeated parameter access)
+        # Get model device once (cache to avoid repeated parameter access)
         model_device = next(rewriter_model.parameters()).device
-        if inputs['input_ids'].device != model_device:
-            # Move inputs to model device
-            inputs = {k: v.to(model_device) for k, v in inputs.items()}
+        # Move inputs to model device in one go
+        inputs = {k: v.to(model_device) for k, v in inputs.items()}
         
         max_new_tokens = 350 if label == 'SENSITIVE' else 256
         log(f"  [Rewriting] Generating (max_new_tokens: {max_new_tokens})...")
