@@ -9,7 +9,7 @@ import gradio as gr
 import numpy as np
 import re
 import gc
-import threading
+# Removed threading import - Gradio's queue handles concurrency
 from transformers import (
     RobertaTokenizer, 
     RobertaForSequenceClassification,
