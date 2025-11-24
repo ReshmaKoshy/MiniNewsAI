@@ -14,6 +14,7 @@ MiniNewsAI is a deep learning system designed to classify and reframe news artic
 
 - **Global News Dataset**: https://www.kaggle.com/datasets/everydaycodings/global-news-dataset
 - **News Article Categories**: https://www.kaggle.com/datasets/timilsinabimal/newsarticlecategories
+- **MiniNewsAI Safety-Labeled News (published contribution)**: https://www.kaggle.com/datasets/reshmakoshy/safety-labeled-news-dataset/data
 
 ### Data Processing
 
@@ -59,17 +60,18 @@ MiniNewsAI is a deep learning system designed to classify and reframe news artic
 
 ### Prerequisites
 
-- Python 3.8+
-- CUDA 12.8+ (for GPU support)
-- NVIDIA GPU with 16GB+ VRAM (recommended)
+- Python 3.9+
+- CUDA 12.1+ (for GPU support)
+- NVIDIA GPU with 16GB+ VRAM recommended (Mistral-7B base ~14GB + LoRA adapter + KV cache); CPU works but is slow and memory-heavy. The RoBERTa classifier is lightweight and runs on CPU or a 4GB GPU.
+- ~20GB free disk for the Mistral-7B base model plus adapters/checkpoints.
 
 ### Setup
 
 1. Clone the repository:
 
 ```bash
-git clone <repository-url>
-cd MiniNewsAI-main
+git clone https://github.com/ReshmaKoshy/MiniNewsAI
+cd MiniNewsAI
 ```
 
 2. Create a virtual environment:
@@ -87,94 +89,36 @@ pip install -r requirements.txt
 
 4. Download pre-trained models (if available):
    - Place classifier model in `models/multiclass_classifier/best_model/`
-   - Place rewriter model in `models/rewriter_seq2seq/`
+   - Place rewriter LoRA adapter in `models/kid_safe_rewriter/best_model/`
+   - Ensure the base Mistral-7B weights are available locally (Hugging Face download) for the rewriter
 
 ## Usage
 
-### Training Models
+## Running the Pipeline and UI
 
-#### 1. Data Preparation
-
+### Option A: Use Existing Checkpoints (fast start)
 ```bash
-# Run data preparation notebook
-jupyter notebook notebooks/01_data_preparation.ipynb
+python -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+python ui/app.py
 ```
+- Browse to `http://localhost:7860`.
+- Click "⚙️ Load Models" (required), paste an article, optionally add a title, then click "🚀 Process Article".
+- The app smart-truncates long inputs (~430 tokens) and reuses the same truncated text for classification and rewriting.
 
-#### 2. Train Multiclass Classifier
+### Option B: Reproduce Training
+1. Data preparation: `notebooks/01_data_preparation.ipynb` (saves to `results/data_preparation/`).
+2. Classifier training: `notebooks/02_multiclass_classifier_training.ipynb` (outputs to `results/multiclass_classifier/`, best model to `models/multiclass_classifier/best_model/`).
+3. Rewriter training: `notebooks/03_kid_safe_rewriter_training.ipynb` (outputs to `results/kid_safe_rewriter/`, adapter to `models/kid_safe_rewriter/best_model/`). Base Mistral-7B weights must be present locally for inference with the adapter.
 
-```bash
-# Run classifier training notebook
-jupyter notebook notebooks/02_multiclass_classifier_training.ipynb
-```
+### UI Behavior
+- Color-coded labels + confidence bars; truncation notice when inputs are shortened.
+- SAFE/SENSITIVE show rewrites; UNSAFE is blocked with an explanatory banner.
 
-#### 3. Train Content Reframer
-
-```bash
-# Run reframer training notebook
-jupyter notebook notebooks/03_kid_safe_rewriter_training.ipynb
-```
-
-### Running the Web UI
-
-#### Using Gradio Interface
-
-1. **Navigate to the project directory:**
-   ```bash
-   cd MiniNewsAI
-   ```
-
-2. **Run the application:**
-   ```bash
-   python ui/app.py
-   ```
-
-3. **Open your browser:**
-   - The interface will be available at `http://localhost:7860`
-   - Click "⚙️ Load Models" to initialize the classifier and rewriter models
-   - Enter a news article and click "🚀 Process Article" to classify and rewrite
-
-#### Using the Interface
-
-1. **Load Models**: Click "⚙️ Load Models" to initialize the classifier and rewriter models (required before processing)
-
-2. **Enter Article**: 
-   - Paste your news article in the text box
-   - Optionally add a title
-
-3. **Process**: Click "🚀 Process Article" to:
-   - Classify the article (SAFE/SENSITIVE/UNSAFE)
-   - See confidence scores for each category
-   - Get a kid-safe rewrite (if applicable)
-
-#### Classification Labels
-
-- 🟢 **SAFE**: Content is already appropriate for children
-- 🟡 **SENSITIVE**: Content needs rewriting to be child-friendly  
-- 🔴 **UNSAFE**: Content cannot be made safe for children
-
-#### Output
-
-The interface displays:
-- **Classification Results**: Label and confidence scores for all three categories
-- **Original Article**: The input article
-- **Kid-Safe Rewrite**: The rewritten version (if SAFE or SENSITIVE)
-
-#### Troubleshooting
-
-**Models not loading?**
-- Check that model directories exist and contain the required files:
-  - `models/multiclass_classifier/best_model/` (classifier)
-  - `models/kid_safe_rewriter/best_model/` (rewriter)
-- Ensure you have enough GPU/CPU memory
-- Check that transformers and peft libraries are installed
-
-**Slow processing?**
-- First run will be slower (model loading)
-- GPU acceleration significantly speeds up inference
-- Consider reducing max_new_tokens if generation is too slow
-
-**Port already in use?**
-- Change the port in `ui/app.py`: `demo.launch(server_port=7861)`
+### UI Screenshots (examples)
+![SAFE rewrite](docs/interface_screenshots/safe_rewrite_example.png)
+![SENSITIVE rewrite](docs/interface_screenshots/sensitive_rewrite_example.png)
+![UNSAFE block](docs/interface_screenshots/unsafe_article_example.png)
 
 ## Project Structure
 
